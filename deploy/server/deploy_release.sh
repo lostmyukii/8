@@ -89,8 +89,9 @@ done
 systemctl daemon-reload
 systemctl enable --now maze-vnc.service maze-novnc.service
 systemctl enable maze-webots-stream.service maze-dashboard.service
+systemctl stop maze-dashboard.service
 systemctl restart maze-webots-stream.service
-systemctl restart maze-dashboard.service
+systemctl start maze-dashboard.service
 
 wait_http() {
   local url=$1

@@ -44,7 +44,13 @@ update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
 add-apt-repository -y universe
 
 ros_apt_source_version=$(
-  curl -fsSL https://api.github.com/repos/ros-infrastructure/ros-apt-source/releases/latest |
+  curl \
+    -fsSL \
+    --retry 5 \
+    --retry-all-errors \
+    --connect-timeout 20 \
+    --max-time 120 \
+    https://api.github.com/repos/ros-infrastructure/ros-apt-source/releases/latest |
     jq -er '.tag_name'
 )
 ros_apt_source_deb="/var/tmp/ros2-apt-source_${ros_apt_source_version}.noble_all.deb"
@@ -81,6 +87,7 @@ if ! command -v webots >/dev/null 2>&1 || ! webots --version 2>&1 | grep -q "R20
   fi
   apt-get install -y "${webots_deb}"
 fi
+install -d -m 1777 -o root -g root /tmp/webots
 
 if ! id maze >/dev/null 2>&1; then
   useradd --create-home --shell /bin/bash maze

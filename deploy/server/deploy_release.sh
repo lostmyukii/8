@@ -87,4 +87,4 @@ if ! wait_http http://127.0.0.1:8000/api/state 60 ||
 fi
 
 echo "Release deployed: ${release_dir}"
-echo "Current commit: $(git -C "${release_dir}" rev-parse HEAD)"
+echo "Current commit: $(sudo -u maze git -C "${release_dir}" rev-parse HEAD)"

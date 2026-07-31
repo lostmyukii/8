@@ -1,0 +1,307 @@
+#VRML_SIM R2025a utf8
+
+WorldInfo {
+  basicTimeStep 32
+  FPS 24
+  randomSeed 7
+  optimalThreadCount 1
+}
+Viewpoint {
+  orientation 1 0 0 -1.5708
+  position 0 4 0.15
+  fieldOfView 0.72
+}
+Background {
+  skyColor [
+    0.035 0.047 0.075
+  ]
+}
+DirectionalLight {
+  direction -0.3 -1 -0.2
+  intensity 1.2
+}
+Solid {
+  translation 0 -0.02 0
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.12 0.16 0.22
+        roughness 0.85
+        metalness 0
+      }
+      geometry Box {
+        size 2.5 0.04 2.5
+      }
+    }
+  ]
+  name "maze floor"
+  boundingObject Box {
+    size 2.5 0.04 2.5
+  }
+}
+Solid {
+  translation 0 0.09 -1.125
+  children [
+    Shape {
+      appearance DEF WALL_MATERIAL PBRAppearance {
+        baseColor 0.16 0.55 0.8
+        roughness 0.45
+        metalness 0.05
+      }
+      geometry Box {
+        size 2.29 0.18 0.04
+      }
+    }
+  ]
+  name "north border"
+  boundingObject Box {
+    size 2.29 0.18 0.04
+  }
+}
+Solid {
+  translation 0 0.09 1.125
+  children [
+    Shape {
+      appearance USE WALL_MATERIAL
+      geometry Box {
+        size 2.29 0.18 0.04
+      }
+    }
+  ]
+  name "south border"
+  boundingObject Box {
+    size 2.29 0.18 0.04
+  }
+}
+Solid {
+  translation -1.125 0.09 0
+  children [
+    Shape {
+      appearance USE WALL_MATERIAL
+      geometry Box {
+        size 0.04 0.18 2.29
+      }
+    }
+  ]
+  name "west border"
+  boundingObject Box {
+    size 0.04 0.18 2.29
+  }
+}
+Solid {
+  translation 1.125 0.09 0
+  children [
+    Shape {
+      appearance USE WALL_MATERIAL
+      geometry Box {
+        size 0.04 0.18 2.29
+      }
+    }
+  ]
+  name "east border"
+  boundingObject Box {
+    size 0.04 0.18 2.29
+  }
+}
+Solid {
+  translation -0.675 0.09 -0.45
+  children [
+    Shape {
+      appearance USE WALL_MATERIAL
+      geometry Box {
+        size 0.04 0.18 0.45
+      }
+    }
+  ]
+  name "wall 1"
+  boundingObject Box {
+    size 0.04 0.18 0.45
+  }
+}
+Solid {
+  translation -0.675 0.09 0.45
+  children [
+    Shape {
+      appearance USE WALL_MATERIAL
+      geometry Box {
+        size 0.04 0.18 0.45
+      }
+    }
+  ]
+  name "wall 2"
+  boundingObject Box {
+    size 0.04 0.18 0.45
+  }
+}
+Solid {
+  translation -0.45 0.09 0.225
+  children [
+    Shape {
+      appearance USE WALL_MATERIAL
+      geometry Box {
+        size 0.45 0.18 0.04
+      }
+    }
+  ]
+  name "wall 3"
+  boundingObject Box {
+    size 0.45 0.18 0.04
+  }
+}
+Solid {
+  translation 0.225 0.09 -0.45
+  children [
+    Shape {
+      appearance USE WALL_MATERIAL
+      geometry Box {
+        size 0.04 0.18 0.45
+      }
+    }
+  ]
+  name "wall 4"
+  boundingObject Box {
+    size 0.04 0.18 0.45
+  }
+}
+Solid {
+  translation 0 0.09 0.225
+  children [
+    Shape {
+      appearance USE WALL_MATERIAL
+      geometry Box {
+        size 0.45 0.18 0.04
+      }
+    }
+  ]
+  name "wall 5"
+  boundingObject Box {
+    size 0.45 0.18 0.04
+  }
+}
+Solid {
+  translation 0.45 0.09 -0.675
+  children [
+    Shape {
+      appearance USE WALL_MATERIAL
+      geometry Box {
+        size 0.45 0.18 0.04
+      }
+    }
+  ]
+  name "wall 6"
+  boundingObject Box {
+    size 0.45 0.18 0.04
+  }
+}
+Solid {
+  translation 0.675 0.09 0.45
+  children [
+    Shape {
+      appearance USE WALL_MATERIAL
+      geometry Box {
+        size 0.04 0.18 0.45
+      }
+    }
+  ]
+  name "wall 7"
+  boundingObject Box {
+    size 0.04 0.18 0.45
+  }
+}
+Solid {
+  translation 0.9 0.09 -0.225
+  children [
+    Shape {
+      appearance USE WALL_MATERIAL
+      geometry Box {
+        size 0.45 0.18 0.04
+      }
+    }
+  ]
+  name "wall 8"
+  boundingObject Box {
+    size 0.45 0.18 0.04
+  }
+}
+Robot {
+  translation -0.9 0.075 0.9
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.94 0.56 0.12
+        roughness 0.35
+        metalness 0.1
+      }
+      geometry Box {
+        size 0.24 0.08 0.3
+      }
+    }
+    Transform {
+      translation 0 0.065 -0.08
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 0.08 0.75 0.62
+            roughness 0.25
+          }
+          geometry Box {
+            size 0.13 0.055 0.1
+          }
+        }
+      ]
+    }
+    Transform {
+      translation 0 0.02 -0.17
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 1 0.18 0.15
+            emissiveColor 0.45 0.02 0.01
+          }
+          geometry Box {
+            size 0.12 0.035 0.025
+          }
+        }
+      ]
+    }
+    Transform {
+      translation -0.135 -0.02 0.025
+      rotation 0 0 1 1.5708
+      children [
+        Shape {
+          appearance DEF TIRE_MATERIAL PBRAppearance {
+            baseColor 0.025 0.025 0.03
+            roughness 0.95
+          }
+          geometry Cylinder {
+            height 0.045
+            radius 0.052
+            subdivision 20
+          }
+        }
+      ]
+    }
+    Transform {
+      translation 0.135 -0.02 0.025
+      rotation 0 0 1 1.5708
+      children [
+        Shape {
+          appearance USE TIRE_MATERIAL
+          geometry Cylinder {
+            height 0.045
+            radius 0.052
+            subdivision 20
+          }
+        }
+      ]
+    }
+  ]
+  name "maze_car"
+  model "RDK X3 ESP32 Maze Car"
+  boundingObject Box {
+    size 0.24 0.08 0.3
+  }
+  controller "maze_sim_controller"
+  supervisor TRUE
+  synchronization TRUE
+}

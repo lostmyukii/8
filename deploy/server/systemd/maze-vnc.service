@@ -1,0 +1,17 @@
+[Unit]
+Description=Maze shared Xfce desktop on TigerVNC
+After=network.target
+
+[Service]
+Type=simple
+User=maze
+Group=maze
+Environment=HOME=/home/maze
+WorkingDirectory=/home/maze
+ExecStart=/usr/bin/tigervncserver -fg -localhost yes -SecurityTypes None -geometry 1600x900 -depth 24 :1
+ExecStop=/usr/bin/tigervncserver -kill :1
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,18 @@
+[Unit]
+Description=Maze RDK tuning dashboard
+After=network.target maze-webots-stream.service
+PartOf=maze-webots-stream.service maze-webots-desktop.service maze-webots-headless.service
+
+[Service]
+Type=simple
+User=maze
+Group=maze
+WorkingDirectory=/srv/maze/current
+Environment=HOME=/home/maze
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/srv/maze/current/.venv/bin/python /srv/maze/current/rdk_maze_tuner/dashboard/app.py --host 127.0.0.1 --port 8000 --tcp 127.0.0.1:8765 --timeout 3
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

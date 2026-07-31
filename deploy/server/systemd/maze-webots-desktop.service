@@ -1,0 +1,22 @@
+[Unit]
+Description=Maze Webots shared desktop simulation
+After=maze-vnc.service
+Requires=maze-vnc.service
+Conflicts=maze-webots-stream.service maze-webots-headless.service
+
+[Service]
+Type=simple
+User=maze
+Group=maze
+WorkingDirectory=/srv/maze/current
+Environment=HOME=/home/maze
+Environment=DISPLAY=:1
+Environment=PYTHONUNBUFFERED=1
+Environment=MAZE_SIM_HOST=127.0.0.1
+Environment=MAZE_SIM_PORT=8765
+ExecStart=/usr/local/bin/webots --mode=realtime /srv/maze/current/simulation/webots/maze_car/worlds/maze_world.wbt
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,20 @@
+[Unit]
+Description=Maze Webots fast headless simulation
+After=network.target
+Conflicts=maze-webots-stream.service maze-webots-desktop.service
+
+[Service]
+Type=simple
+User=maze
+Group=maze
+WorkingDirectory=/srv/maze/current
+Environment=HOME=/home/maze
+Environment=PYTHONUNBUFFERED=1
+Environment=MAZE_SIM_HOST=127.0.0.1
+Environment=MAZE_SIM_PORT=8765
+ExecStart=/usr/bin/xvfb-run -a -s "-screen 0 1024x768x24" /usr/local/bin/webots --batch --mode=fast --no-rendering /srv/maze/current/simulation/webots/maze_car/worlds/maze_world.wbt
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

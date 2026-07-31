@@ -1,0 +1,54 @@
+robot:
+  cell_size_cm: 25
+  wheel_diameter_cm: 6.5
+  wheel_base_cm: 13.5
+
+motor:
+  base_speed: 0.25
+  turn_speed: 0.18
+  max_speed: 0.40
+  min_pwm_left: 45
+  min_pwm_right: 45
+  max_pwm: 180
+  left_trim: 1.00
+  right_trim: 1.00
+
+motion:
+  cell_ticks: 1350
+  turn_90_ticks: 720
+  turn_180_ticks: 1440
+  brake_ticks: 30
+  stop_tolerance_ticks: 20
+
+pid:
+  speed_kp: 0.8
+  speed_ki: 0.0
+  speed_kd: 0.05
+  heading_kp: 0.6
+  heading_kd: 0.03
+
+tof:
+  wall_threshold_mm: 150
+  open_threshold_mm: 220
+  front_stop_mm: 120
+  danger_stop_mm: 60
+  filter_window: 5
+
+wall_follow:
+  enabled: true
+  center_kp: 0.004
+  center_max_correction: 0.08
+
+auto_tune:
+  enabled: true
+  max_change_ratio: 0.15
+  max_params_per_step: 3
+  tune_after_each_action: true
+  tune_after_each_run: true
+
+safety:
+  heartbeat_timeout_ms: 500
+  action_timeout_ms: 8000
+  max_fail_count: 5
+  allow_ai_modify_safety: false
+

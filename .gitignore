@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+.venv/
+.superpowers/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.DS_Store
+
+esp32_firmware/.pio/
+esp32_firmware/.vscode/.browse.c_cpp.db*
+esp32_firmware/.vscode/c_cpp_properties.json
+esp32_firmware/.vscode/launch.json
+esp32_firmware/.vscode/ipch/
+
+logs/
+videos/
+reports/
+
+# 本机硬件参考资料，不参与服务器部署
+/小车形态*.jpg
+/全国青少年机器人技术等级考试标准*.pdf

@@ -1,0 +1,15 @@
+[Unit]
+Description=Maze noVNC loopback gateway
+After=maze-vnc.service
+Requires=maze-vnc.service
+
+[Service]
+Type=simple
+User=maze
+Group=maze
+ExecStart=/usr/bin/websockify --web=/usr/share/novnc 127.0.0.1:6080 127.0.0.1:5901
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

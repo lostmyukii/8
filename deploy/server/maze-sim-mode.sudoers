@@ -1,0 +1,1 @@
+maze ALL=(root) NOPASSWD: /usr/local/sbin/maze-sim-mode stream, /usr/local/sbin/maze-sim-mode desktop, /usr/local/sbin/maze-sim-mode headless, /usr/local/sbin/maze-sim-mode status

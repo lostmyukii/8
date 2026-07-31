@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>RDK Maze Tuner</title>
+    <link rel="stylesheet" href="/static/app.css">
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand__title">RDK Maze Tuner</span>
+        <span id="connectionState" class="status status--offline">离线</span>
+      </div>
+      <div class="topbar__meta">
+        <span id="esp32State">OFFLINE</span>
+        <span id="paramVersion">v1</span>
+      </div>
+      <button id="estopButton" class="danger-button" type="button">急停</button>
+    </header>
+
+    <main class="workspace">
+      <section class="panel panel--map">
+        <div class="panel__head">
+          <h1>地图</h1>
+          <span id="poseLabel">0,0 N</span>
+        </div>
+        <pre id="mazeMap" class="maze-map"></pre>
+      </section>
+
+      <section class="panel">
+        <div class="panel__head">
+          <h2>传感器</h2>
+          <span id="lastAck">ACK -</span>
+        </div>
+        <div class="metrics">
+          <div><span>前</span><strong id="frontMm">-</strong></div>
+          <div><span>左</span><strong id="leftMm">-</strong></div>
+          <div><span>右</span><strong id="rightMm">-</strong></div>
+          <div><span>左码盘</span><strong id="encLeft">0</strong></div>
+          <div><span>右码盘</span><strong id="encRight">0</strong></div>
+          <div><span>PWM</span><strong id="pwmPair">0 / 0</strong></div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel__head">
+          <h2>手动控制</h2>
+          <span id="currentAction">-</span>
+        </div>
+        <div class="control-grid">
+          <button data-action="move_cell" type="button">前进</button>
+          <button data-action="turn_left" type="button">左转</button>
+          <button data-action="turn_right" type="button">右转</button>
+          <button data-action="turn_back" type="button">掉头</button>
+          <button id="stopButton" class="stop-button" type="button">停止</button>
+        </div>
+      </section>
+
+      <section class="panel panel--params">
+        <div class="panel__head">
+          <h2>参数</h2>
+          <span id="paramResult">-</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>参数</th>
+                <th>当前值</th>
+                <th>新值</th>
+                <th>下发</th>
+              </tr>
+            </thead>
+            <tbody id="paramTable"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel__head">
+          <h2>自动调参</h2>
+          <label class="switch">
+            <input id="autoTuneToggle" type="checkbox" checked>
+            <span>启用</span>
+          </label>
+        </div>
+        <dl class="summary-list">
+          <div>
+            <dt>最近原因</dt>
+            <dd id="lastTuneReason">-</dd>
+          </div>
+          <div>
+            <dt>最近变更</dt>
+            <dd id="lastTuneChange">-</dd>
+          </div>
+        </dl>
+      </section>
+
+      <section class="panel panel--logs">
+        <div class="panel__head">
+          <h2>日志</h2>
+          <span id="logCount">0</span>
+        </div>
+        <ol id="logList" class="log-list"></ol>
+      </section>
+    </main>
+
+    <script src="/static/app.js" defer></script>
+  </body>
+</html>
+

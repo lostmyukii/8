@@ -5,7 +5,7 @@ if [[ ${EUID} -ne 0 ]]; then
   exec sudo -E bash "$0" "$@"
 fi
 
-repo_url=${1:-https://github.com/lostmyukii/8.git}
+repo_source=${1:-https://github.com/lostmyukii/8.git}
 source_ref=${2:-main}
 release_stamp=$(date -u +%Y%m%dT%H%M%SZ)
 release_dir="/srv/maze/releases/${release_stamp}"
@@ -20,32 +20,42 @@ if ! id maze >/dev/null 2>&1; then
 fi
 
 install -d -m 0755 -o maze -g maze /srv/maze/releases /srv/maze/logs
-clone_ok=false
-for clone_attempt in 1 2 3; do
-  if git -c http.version=HTTP/1.1 clone \
-    --filter=blob:none \
-    --no-checkout \
-    "${repo_url}" \
-    "${release_dir}"; then
-    clone_ok=true
-    break
+if [[ -d ${repo_source} ]]; then
+  install -d -m 0755 "${release_dir}"
+  cp -a "${repo_source}/." "${release_dir}/"
+else
+  clone_ok=false
+  for clone_attempt in 1 2 3; do
+    if git -c http.version=HTTP/1.1 clone \
+      --filter=blob:none \
+      --no-checkout \
+      "${repo_source}" \
+      "${release_dir}"; then
+      clone_ok=true
+      break
+    fi
+    case ${release_dir} in
+      /srv/maze/releases/*) rm -rf -- "${release_dir}" ;;
+      *)
+        echo "Refusing to clean unexpected release path: ${release_dir}" >&2
+        exit 1
+        ;;
+    esac
+    echo "Git clone attempt ${clone_attempt} failed; retrying." >&2
+    sleep 3
+  done
+  if [[ ${clone_ok} != true ]]; then
+    echo "Unable to clone ${repo_source} after 3 attempts." >&2
+    exit 1
   fi
-  case ${release_dir} in
-    /srv/maze/releases/*) rm -rf -- "${release_dir}" ;;
-    *)
-      echo "Refusing to clean unexpected release path: ${release_dir}" >&2
-      exit 1
-      ;;
-  esac
-  echo "Git clone attempt ${clone_attempt} failed; retrying." >&2
-  sleep 3
-done
-if [[ ${clone_ok} != true ]]; then
-  echo "Unable to clone ${repo_url} after 3 attempts." >&2
+  git -C "${release_dir}" checkout --detach "${source_ref}"
+fi
+chown -R maze:maze "${release_dir}"
+
+if [[ ! -r ${release_dir}/requirements.txt ]]; then
+  echo "Release source is missing requirements.txt: ${release_dir}" >&2
   exit 1
 fi
-git -C "${release_dir}" checkout --detach "${source_ref}"
-chown -R maze:maze "${release_dir}"
 
 sudo -u maze python3 -m venv "${release_dir}/.venv"
 sudo -u maze "${release_dir}/.venv/bin/python" -m pip install --upgrade pip
@@ -110,4 +120,8 @@ if ! wait_http http://127.0.0.1:8000/api/state 60 ||
 fi
 
 echo "Release deployed: ${release_dir}"
-echo "Current commit: $(sudo -u maze git -C "${release_dir}" rev-parse HEAD)"
+if [[ -d ${release_dir}/.git ]]; then
+  echo "Current commit: $(sudo -u maze git -C "${release_dir}" rev-parse HEAD)"
+else
+  echo "Current source: local archive (${source_ref})"
+fi

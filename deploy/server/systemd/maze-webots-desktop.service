@@ -14,9 +14,10 @@ Environment=DISPLAY=:1
 Environment=PYTHONUNBUFFERED=1
 Environment=MAZE_SIM_HOST=127.0.0.1
 Environment=MAZE_SIM_PORT=8765
-ExecStart=/usr/local/bin/webots --mode=realtime /srv/maze/current/simulation/webots/maze_car/worlds/maze_world.wbt
+ExecStart=/usr/local/bin/webots --batch --stdout --stderr --mode=realtime /srv/maze/current/simulation/webots/maze_car/worlds/maze_world.wbt
 Restart=on-failure
 RestartSec=5
+TimeoutStopSec=15
 
 [Install]
 WantedBy=multi-user.target

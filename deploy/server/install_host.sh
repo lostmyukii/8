@@ -58,15 +58,27 @@ apt-get install -y ros-jazzy-desktop ros-dev-tools
 
 webots_deb="/var/tmp/webots_2025a_amd64.deb"
 webots_url="https://github.com/cyberbotics/webots/releases/download/R2025a/webots_2025a_amd64.deb"
+webots_accelerated_url="https://gh-proxy.com/${webots_url}"
 webots_sha256="6253d58c9b625a83ed7b62cd85a640fd0542d441c48d633a60932208b40b0657"
 if ! command -v webots >/dev/null 2>&1 || ! webots --version 2>&1 | grep -q "R2025a"; then
-  wget \
-    --continue \
-    --tries=20 \
-    --timeout=60 \
-    --output-document="${webots_deb}" \
-    "${webots_url}"
-  printf '%s  %s\n' "${webots_sha256}" "${webots_deb}" | sha256sum --check -
+  webots_download_ok=false
+  for candidate_url in "${webots_accelerated_url}" "${webots_url}"; do
+    if wget \
+      --continue \
+      --tries=20 \
+      --timeout=60 \
+      --output-document="${webots_deb}" \
+      "${candidate_url}" &&
+      printf '%s  %s\n' "${webots_sha256}" "${webots_deb}" | sha256sum --check -; then
+      webots_download_ok=true
+      break
+    fi
+    rm -f "${webots_deb}"
+  done
+  if [[ ${webots_download_ok} != true ]]; then
+    echo "Webots download or checksum verification failed." >&2
+    exit 1
+  fi
   apt-get install -y "${webots_deb}"
 fi
 

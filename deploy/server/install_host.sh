@@ -33,6 +33,7 @@ apt-get install -y \
   software-properties-common \
   tigervnc-standalone-server \
   ufw \
+  wget \
   websockify \
   xfce4 \
   xfce4-goodies \
@@ -59,7 +60,12 @@ webots_deb="/var/tmp/webots_2025a_amd64.deb"
 webots_url="https://github.com/cyberbotics/webots/releases/download/R2025a/webots_2025a_amd64.deb"
 webots_sha256="6253d58c9b625a83ed7b62cd85a640fd0542d441c48d633a60932208b40b0657"
 if ! command -v webots >/dev/null 2>&1 || ! webots --version 2>&1 | grep -q "R2025a"; then
-  curl -fL --retry 3 -o "${webots_deb}" "${webots_url}"
+  wget \
+    --continue \
+    --tries=20 \
+    --timeout=60 \
+    --output-document="${webots_deb}" \
+    "${webots_url}"
   printf '%s  %s\n' "${webots_sha256}" "${webots_deb}" | sha256sum --check -
   apt-get install -y "${webots_deb}"
 fi

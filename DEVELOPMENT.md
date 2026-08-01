@@ -550,6 +550,28 @@ ESP32 必须本地实现以下保护，即使 RDK X3 卡死也能停车：
 - 服务器重启后仍可从历史运行列表打开任一 run。
 - 无视频时页面明确显示“结构化回放可用”，播放头仍能同步跳转关键事件。
 
+### M7：Webots 刚体物理仿真与可复现验收
+
+输出：
+
+- 65 mm 轮径、135 mm 轮距的刚体小车、两主动轮和被动万向轮。
+- 左右电机、编码器、前/左/右 ToF、IMU、陀螺仪和加速度计。
+- normal、low、asymmetric、local_patch 四种不可变 profile。
+- 固定 seed、SHA-256 摘要、P1–P5 报告和不可变 JSONL。
+- 物理 run 的地图、参数、profile、controller/Webots 版本固化。
+
+验收：
+
+- normal 连续动作达到距离/方向误差和成功率阈值。
+- 四种摩擦产生可重复但不同的轨迹和滑移证据。
+- Webots RTF ≥ 0.8，可见画面 ≥ 15 FPS，控制周期仍为 8 ms。
+- 普通控制路径不能读取 Supervisor 真值。
+- 生产服务可在 stream、desktop、headless 间互斥切换并精确回滚。
+
+运行和证据路径见
+`docs/operations/webots-physical-simulation-runbook.md` 与
+`docs/acceptance/webots-physical-maze-car-checklist.md`。
+
 ## 12. 验证策略
 
 无硬件时：

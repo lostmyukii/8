@@ -45,7 +45,11 @@ pio run
 
 ## 云服务器入口
 
-服务器部署文件位于 `deploy/server`。默认仅开放 SSH，以下页面通过 Mac 的 SSH 隧道访问：
+服务器部署文件位于 `deploy/server`。生产入口为
+`https://8.ilelezhan.cn`，Caddy 只通过 80/443 代理 FastAPI；
+`/simulation/*` 必须先通过网站会话鉴权。内部端口不直接暴露公网。
+
+SSH 隧道保留为维护和公网故障时的回退：
 
 - Dashboard：`http://127.0.0.1:8000/`
 - Webots Web Streaming：`http://127.0.0.1:1234/index.html`
@@ -63,3 +67,8 @@ sudo maze-sim-mode status
 ```
 
 服务器不承担 ESP32 的 USB 烧录。PlatformIO 编译、烧录和真实硬件验收仍在连接小车的 Mac 上完成。
+
+物理仿真验收和服务操作见：
+
+- `docs/acceptance/webots-physical-maze-car-checklist.md`
+- `docs/operations/webots-physical-simulation-runbook.md`

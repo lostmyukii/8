@@ -107,3 +107,11 @@ Webots 进程，不使用 `pkill` 或 `killall`。
 `maze_physical_world.wbt` 和 `normal-v1`。它们互斥运行，协议只监听
 `127.0.0.1:8765`；stream 继续输出 W3D，headless 保持 world 中定义的
 8 ms 物理步长而关闭渲染。
+
+完整阈值、最新服务器实测、模式切换和精确回滚命令见：
+
+- `docs/acceptance/webots-physical-maze-car-checklist.md`
+- `docs/operations/webots-physical-simulation-runbook.md`
+
+公网模式下不直接开放 1234；Caddy 的 `/simulation/*` 必须先调用
+Dashboard 会话鉴权。维护时仍可通过 SSH 隧道访问 1234、6080 和 8000。

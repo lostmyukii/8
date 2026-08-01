@@ -1257,7 +1257,7 @@ feat: expose physical simulation evidence
 - Modify: `deploy/server/maze-sim-mode`
 - Modify: `simulation/webots/maze_car/README.md`
 
-- [ ] **11.1 写验收 runner 失败测试**
+- [x] **11.1 写验收 runner 失败测试**
 
 runner 必须：
 
@@ -1269,7 +1269,7 @@ runner 必须：
 - Webots 未安装时明确返回 unavailable，不伪造 PASS。
 - 子进程失败、超时、协议断开和报告不完整均返回非零。
 
-- [ ] **11.2 实现 P1–P4 自动化报告**
+- [x] **11.2 实现 P1–P4 自动化报告**
 
 服务器命令：
 
@@ -1311,7 +1311,7 @@ overall PASS/FAIL
 8. 验证网站公网只经已有 HTTPS 入口。
 9. 失败时使用明确 release ID 回滚，恢复旧 `maze_world.wbt` 服务。
 
-- [ ] **11.4 修改 systemd 入口**
+- [x] **11.4 修改 systemd 入口**
 
 P1–P4 通过后，三个 Webots service 显式使用：
 
@@ -1329,7 +1329,7 @@ MAZE_DEFAULT_PHYSICAL_PROFILE=normal-v1
 - desktop 仍复用共享 VNC。
 - headless 不渲染但不降低 8 ms 物理控制周期。
 
-- [ ] **11.5 P5 性能与画面验收**
+- [x] **11.5 P5 性能与画面验收**
 
 记录真实值：
 
@@ -1345,13 +1345,28 @@ CPU/RAM usage
 
 若不达标，依次降低阴影、纹理、抗锯齿和输出分辨率；禁止用降低控制频率换帧率。
 
-- [ ] **11.6 运行目标测试和完整回归**
+- [x] **11.6 运行目标测试和完整回归**
 
-- [ ] **11.7 提交检查点**
+- [x] **11.7 提交检查点**
 
 ```text
 deploy: switch Webots services to physical simulation
 ```
+
+Task 11 实施记录（2026-08-01）：
+
+- 自动 runner 使用临时端口、记录 PID、总超时、DeviceSession 和完整
+  schema；缺 Webots、协议断开、子进程失败或字段缺失均返回非零。
+- 服务器报告 `physical-20260801T184931Z-6b28a70a` 为 PASS：
+  P1 水平漂移 0 m，P2 三向 ToF 最大误差/重复离散均 0 mm，
+  normal 30/30 动作成功，四种摩擦差异全部通过。
+- P5 实测 RTF 0.952、可见更新 19.99 FPS、telemetry 17.23 Hz、
+  8 ms 控制周期；Webots 约占整机 10.25% CPU、240.39 MiB。
+- stream → desktop → stream 已验证，Dashboard 均能重连协议。
+- Python 完整回归在入口修复后为 325 passed；服务器 PlatformIO 为
+  RAM 6.9%、Flash 24.2%。
+- 公网 80/443 当前仍在腾讯云边界超时，主机 UFW 入站计数为 0；
+  因此 11.3 的“公网 HTTPS”一项保持未完成，不能写成部署全绿。
 
 ### Task 12：完整验收证据、文档和移交
 
@@ -1363,7 +1378,7 @@ deploy: switch Webots services to physical simulation
 - Modify: `simulation/webots/maze_car/README.md`
 - Modify: `docs/superpowers/plans/2026-08-01-webots-physical-maze-car.md`
 
-- [ ] **12.1 完成 P1–P5 证据清单**
+- [x] **12.1 完成 P1–P5 证据清单**
 
 记录而不是概述：
 
@@ -1378,7 +1393,7 @@ deploy: switch Webots services to physical simulation
 - P5 realTimeFactor、浏览器 FPS、遥测率和页面视口截图。
 - 当前服务器 release ID、服务状态和回滚目标。
 
-- [ ] **12.2 完整本地回归**
+- [x] **12.2 完整本地回归**
 
 ```bash
 .venv/bin/python -m compileall -q rdk_maze_tuner simulation
@@ -1402,7 +1417,7 @@ git diff --check
 - 本地端口与公网入口检查。
 - systemd 重启后历史 run 恢复。
 
-- [ ] **12.4 明确验收边界**
+- [x] **12.4 明确验收边界**
 
 最终状态必须分别报告：
 
@@ -1418,7 +1433,7 @@ ESP32 构建：PASS/FAIL
 
 不能把 Webots PASS 写成“真车可用”。
 
-- [ ] **12.5 文档移交**
+- [x] **12.5 文档移交**
 
 Runbook 包含：
 

@@ -215,7 +215,7 @@ Task 1 实施记录（2026-08-01）：
 - Modify: `simulation/webots/maze_car/controllers/maze_sim_controller/sim_engine.py`
 - Modify: `rdk_maze_tuner/tests/test_webots_sim_bridge.py`
 
-- [ ] **2.1 写引擎替换失败测试**
+- [x] **2.1 写引擎替换失败测试**
 
 用最小 fake engine 验证 `SimProtocolServer` 只依赖：
 
@@ -241,7 +241,7 @@ Run:
 
 Expected: RED，因为服务器仍直接标注 `MazeSimEngine` 且没有连接生命周期合同。
 
-- [ ] **2.2 实现 `SimulationProtocolEngine`**
+- [x] **2.2 实现 `SimulationProtocolEngine`**
 
 - 用 `Protocol` 描述最小合同。
 - `SimProtocolServer` 构造函数只接受该合同。
@@ -250,7 +250,7 @@ Expected: RED，因为服务器仍直接标注 `MazeSimEngine` 且没有连接�
 - 单客户端、loopback、换行 JSON 和发送顺序保持不变。
 - 服务器关闭时只关闭自己的 socket，并调用引擎 `close()`；不操作其他服务。
 
-- [ ] **2.3 保持旧后端回归**
+- [x] **2.3 保持旧后端回归**
 
 必须继续通过：
 
@@ -260,13 +260,28 @@ Expected: RED，因为服务器仍直接标注 `MazeSimEngine` 且没有连接�
 - `DeviceSession` 单 reader。
 - standalone deterministic server。
 
-- [ ] **2.4 运行目标测试和完整回归**
+- [x] **2.4 运行目标测试和完整回归**
 
-- [ ] **2.5 提交检查点**
+- [x] **2.5 提交检查点**
 
 ```text
 refactor: abstract the simulation protocol engine
 ```
+
+Task 2 实施记录（2026-08-01）：
+
+- RED：新测试因 `simulation.webots.maze_car.engine_contract` 不存在而在
+  收集阶段失败。
+- 新增 runtime-checkable `SimulationProtocolEngine`；TCP server 不再
+  import 或标注具体 `MazeSimEngine`。
+- server 在初始 ready/telemetry 前通知连接，在 EOF、socket 错误和关闭时
+  只通知一次断开；关闭幂等，并清理自己的 client/listener 后调用引擎
+  `close()`。
+- 确定性后端只增加连接生命周期无操作钩子；ACK、telemetry、matching
+  done、地图摘要、stop/estop、malformed JSON 和单 reader 行为保持。
+- 目标测试：10 passed。
+- 完整 Python 回归：186 passed；`compileall` 通过。
+- ESP32 PlatformIO 构建通过：RAM 6.9%，Flash 24.2%。
 
 ---
 

@@ -6,11 +6,19 @@ import json
 import socket
 from typing import Any
 
-from .sim_engine import MazeSimEngine
+from simulation.webots.maze_car.engine_contract import (
+    SimulationProtocolEngine,
+)
 
 
 class SimProtocolServer:
-    def __init__(self, engine: MazeSimEngine, *, host: str = "127.0.0.1", port: int = 8765) -> None:
+    def __init__(
+        self,
+        engine: SimulationProtocolEngine,
+        *,
+        host: str = "127.0.0.1",
+        port: int = 8765,
+    ) -> None:
         self.engine = engine
         self.listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -19,9 +27,14 @@ class SimProtocolServer:
         self.listener.setblocking(False)
         self.client: socket.socket | None = None
         self.buffer = bytearray()
+        self._now_ms = 0
+        self._closed = False
 
     def poll(self, *, now_ms: int) -> None:
-        self._accept_client()
+        if self._closed:
+            return
+        self._now_ms = now_ms
+        self._accept_client(now_ms=now_ms)
         if self.client is None:
             self.engine.tick(now_ms=now_ms)
             return
@@ -29,10 +42,18 @@ class SimProtocolServer:
         self._send_many(self.engine.tick(now_ms=now_ms))
 
     def close(self) -> None:
-        self._drop_client()
-        self.listener.close()
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            self._drop_client(now_ms=self._now_ms)
+        finally:
+            try:
+                self.listener.close()
+            finally:
+                self.engine.close()
 
-    def _accept_client(self) -> None:
+    def _accept_client(self, *, now_ms: int) -> None:
         if self.client is not None:
             return
         try:
@@ -42,7 +63,13 @@ class SimProtocolServer:
         client.settimeout(0.0)
         self.client = client
         self.buffer.clear()
-        self._send_many([self.engine.ready_message(), self.engine.telemetry_message()])
+        self.engine.on_client_connected(now_ms=now_ms)
+        self._send_many(
+            [
+                self.engine.ready_message(),
+                self.engine.telemetry_message(),
+            ]
+        )
 
     def _read_messages(self, *, now_ms: int) -> None:
         if self.client is None:
@@ -53,10 +80,10 @@ class SimProtocolServer:
             except (BlockingIOError, socket.timeout):
                 break
             except OSError:
-                self._drop_client()
+                self._drop_client(now_ms=now_ms)
                 return
             if not chunk:
-                self._drop_client()
+                self._drop_client(now_ms=now_ms)
                 return
             self.buffer.extend(chunk)
 
@@ -94,9 +121,9 @@ class SimProtocolServer:
                 payload = json.dumps(message, ensure_ascii=False, separators=(",", ":"))
                 self.client.sendall(payload.encode("utf-8") + b"\n")
         except OSError:
-            self._drop_client()
+            self._drop_client(now_ms=self._now_ms)
 
-    def _drop_client(self) -> None:
+    def _drop_client(self, *, now_ms: int) -> None:
         if self.client is None:
             return
         try:
@@ -104,3 +131,4 @@ class SimProtocolServer:
         finally:
             self.client = None
             self.buffer.clear()
+            self.engine.on_client_disconnected(now_ms=now_ms)

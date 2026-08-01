@@ -99,6 +99,15 @@ class MazeSimEngine:
             "map_digest": self.map_digest,
         }
 
+    def on_client_connected(self, *, now_ms: int) -> None:
+        """Deterministic backend has no connection-scoped state."""
+
+    def on_client_disconnected(self, *, now_ms: int) -> None:
+        """Deterministic backend has no motors to stop."""
+
+    def close(self) -> None:
+        """Deterministic backend owns no external resources."""
+
     def handle(self, message: Mapping[str, Any], *, now_ms: int) -> list[dict[str, Any]]:
         self.last_now_ms = now_ms
         message_type = str(message.get("type") or "")

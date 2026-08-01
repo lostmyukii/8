@@ -163,3 +163,13 @@ def test_tcp_bridge_runs_through_single_reader_device_session():
         stopped.set()
         thread.join(timeout=1.0)
         server.close()
+
+
+def test_deterministic_engine_connection_hooks_are_noop_and_close_is_safe():
+    engine = MazeSimEngine()
+
+    engine.on_client_connected(now_ms=10)
+    engine.on_client_disconnected(now_ms=20)
+    engine.close()
+
+    assert engine.telemetry_message()["state"] == "IDLE"

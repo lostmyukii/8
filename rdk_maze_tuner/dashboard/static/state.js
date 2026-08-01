@@ -6,6 +6,10 @@ const model = {
   csrfToken: storage.getItem("maze.csrf") || "",
   leaseToken: storage.getItem("maze.lease") || "",
   selectedMode: storage.getItem("maze.mode") || "simulation",
+  selectedPhysicalProfileId:
+    storage.getItem("maze.physical-profile") || "normal-v1",
+  physicalProfiles: [],
+  physicalProfilesLoaded: false,
   activeTaskId: storage.getItem("maze.task") || "",
   socketConnected: false,
 };
@@ -71,6 +75,32 @@ export function setSelectedMode(mode) {
   notify();
 }
 
+export function setPhysicalProfiles(profiles) {
+  model.physicalProfiles = Array.isArray(profiles) ? profiles : [];
+  model.physicalProfilesLoaded = true;
+  if (
+    !model.physicalProfiles.some(
+      (profile) => profile.profile_id === model.selectedPhysicalProfileId,
+    )
+    && model.physicalProfiles.length
+  ) {
+    model.selectedPhysicalProfileId = model.physicalProfiles[0].profile_id;
+    storage.setItem(
+      "maze.physical-profile",
+      model.selectedPhysicalProfileId,
+    );
+  }
+  notify();
+}
+
+export function setSelectedPhysicalProfile(profileId) {
+  const normalized = String(profileId || "").trim();
+  if (!normalized) return;
+  model.selectedPhysicalProfileId = normalized;
+  storage.setItem("maze.physical-profile", normalized);
+  notify();
+}
+
 export function setActiveTask(taskId) {
   model.activeTaskId = taskId || "";
   if (model.activeTaskId) {
@@ -97,6 +127,23 @@ export function setPayload(payload) {
   if (active?.mode) {
     model.selectedMode = active.mode;
     storage.setItem("maze.mode", active.mode);
+  }
+  const profileLocked = Boolean(
+    active
+    && !["IDLE", "COMPLETED", "LOST", "ERROR", "ESTOP"].includes(
+      active.status,
+    ),
+  );
+  if (
+    active?.mode === "simulation"
+    && active.physical_profile_id
+    && profileLocked
+  ) {
+    model.selectedPhysicalProfileId = active.physical_profile_id;
+    storage.setItem(
+      "maze.physical-profile",
+      active.physical_profile_id,
+    );
   }
   notify();
 }

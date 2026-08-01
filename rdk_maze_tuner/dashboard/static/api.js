@@ -141,6 +141,10 @@ export function listMaps() {
   return request("/api/maps");
 }
 
+export function listPhysicalProfiles() {
+  return request("/api/physical-profiles");
+}
+
 export function listMapVersions(mapId) {
   return request(
     `/api/maps/${encodeURIComponent(mapId)}/versions`,

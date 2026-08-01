@@ -50,6 +50,7 @@ function valueText(value, fallback = "-") {
 }
 
 function numericText(value, digits = 1) {
+  if (value === null || value === undefined || value === "") return "-";
   const number = Number(value);
   return Number.isFinite(number) ? number.toFixed(digits) : "-";
 }
@@ -120,8 +121,13 @@ export function renderDashboard(appState) {
   renderMode(selectedMode, task, isController);
   renderConnections(appState, selectedMode, task, telemetry);
   renderTask(task, isController);
+  renderPhysicalProfileSelector(appState, task, isController);
   renderPose(maze, telemetry, params, task);
   renderEvidence(telemetry);
+  renderPhysicalEvidence(
+    payload.physical_evidence || {},
+    selectedMode,
+  );
   renderMap(maze);
   renderTimeline(payload.logs || [], task?.recent_events || []);
   renderTune(payload.logs || []);
@@ -135,6 +141,238 @@ export function renderDashboard(appState) {
     "lastAck",
     payload.last_ack ? `ACK ${valueText(payload.last_ack.seq)}` : "ACK -",
   );
+}
+
+function renderPhysicalProfileSelector(appState, task, isController) {
+  const select = $("physicalProfileInput");
+  if (!select) return;
+  const profiles = appState.physicalProfiles || [];
+  const options = profiles.map((profile) => {
+    const option = document.createElement("option");
+    option.value = profile.profile_id;
+    option.textContent = `${profile.profile_id} · ${
+      String(profile.digest || "").slice(0, 10)
+    }`;
+    return option;
+  });
+  if (!options.length) {
+    const option = document.createElement("option");
+    option.value = appState.selectedPhysicalProfileId || "normal-v1";
+    option.textContent = option.value;
+    options.push(option);
+  }
+  select.replaceChildren(...options);
+  const taskLocksProfile = Boolean(
+    task
+    && task.mode === "simulation"
+    && !["IDLE", "COMPLETED", "LOST", "ERROR", "ESTOP"].includes(
+      task.status,
+    ),
+  );
+  select.value =
+    taskLocksProfile && task.physical_profile_id
+      ? task.physical_profile_id
+      : appState.selectedPhysicalProfileId;
+  select.disabled =
+    appState.selectedMode !== "simulation"
+    || !isController
+    || taskLocksProfile;
+  select.title = taskLocksProfile
+    ? "物理配置已经随本次任务锁定；完成后重置可更换"
+    : "配置在任务创建时形成不可变快照";
+}
+
+function joinPair(left, right, unit = "") {
+  return `${numericText(left)}${unit} / ${numericText(right)}${unit}`;
+}
+
+function percentagePair(left, right) {
+  const format = (value) => (
+    Number.isFinite(Number(value))
+      ? `${numericText(Number(value) * 100)}%`
+      : "-"
+  );
+  return `${format(left)} / ${format(right)}`;
+}
+
+function poseText(pose) {
+  return `x ${numericText(pose?.x_mm)} · y ${numericText(
+    pose?.y_mm,
+  )} mm · ${numericText(pose?.yaw_deg)}°`;
+}
+
+function renderPhysicalEvidence(evidence, selectedMode) {
+  const profile = evidence.profile || {};
+  const vehicle = evidence.vehicle || {};
+  const wheel = evidence.wheel || {};
+  const tof = evidence.tof || {};
+  const imu = evidence.imu || {};
+  const control = evidence.control || {};
+  const slip = evidence.slip || {};
+  const pose = evidence.pose || {};
+  const safety = evidence.safety || {};
+  const isSimulation = selectedMode === "simulation";
+  const truth_evaluation_only =
+    isSimulation && pose.truth_evaluation_only === true && pose.truth;
+
+  const mode = $("physicalEvidenceMode");
+  if (mode) {
+    mode.textContent = profile.profile_id
+      ? isSimulation
+        ? "SIM PHYSICS"
+        : "REAL SENSORS"
+      : "等待物理遥测";
+    mode.className = `status-pill ${
+      profile.profile_id || control.state
+        ? "status-pill--online"
+        : "status-pill--lost"
+    }`;
+  }
+
+  setText("physicalProfileId", profile.profile_id);
+  setText(
+    "physicalProfileDigest",
+    profile.digest ? String(profile.digest).slice(0, 16) : null,
+  );
+  setText("physicalRandomSeed", profile.random_seed);
+  setText("physicalWebotsVersion", isSimulation ? profile.webots_version : "实车");
+  setText(
+    "physicalMass",
+    vehicle.total_mass_kg !== null
+      && vehicle.total_mass_kg !== undefined
+      && Number.isFinite(Number(vehicle.total_mass_kg))
+      ? `${numericText(vehicle.total_mass_kg, 3)} kg`
+      : null,
+  );
+  setText(
+    "physicalCenterOfMass",
+    Array.isArray(vehicle.center_of_mass_m)
+      ? vehicle.center_of_mass_m.map((value) => numericText(value, 3)).join(" / ")
+      : null,
+  );
+  setText(
+    "physicalWheelGeometry",
+    vehicle.wheel_radius_m !== null
+      && vehicle.wheel_radius_m !== undefined
+      && Number.isFinite(Number(vehicle.wheel_radius_m))
+      ? `R ${numericText(Number(vehicle.wheel_radius_m) * 1000)} / T ${
+        numericText(Number(vehicle.axle_track_m) * 1000)
+      } mm`
+      : null,
+  );
+  setText("physicalSurface", vehicle.surface_profile);
+
+  setText(
+    "wheelEvidence",
+    `角 ${joinPair(
+      wheel.wheel_angle_left_rad,
+      wheel.wheel_angle_right_rad,
+      " rad",
+    )} · 速 ${joinPair(
+      wheel.wheel_speed_left_rad_s,
+      wheel.wheel_speed_right_rad_s,
+      " rad/s",
+    )} · PWM ${joinPair(wheel.pwm_left, wheel.pwm_right)} · 力矩 ${
+      joinPair(
+        wheel.motor_torque_left_nm,
+        wheel.motor_torque_right_nm,
+        " Nm",
+      )
+    } · 编码 ${joinPair(wheel.enc_left, wheel.enc_right)}`,
+  );
+  const quality = Array.isArray(tof.quality_flags)
+    ? tof.quality_flags.join(", ")
+    : valueText(tof.quality_flags, "-");
+  setText(
+    "tofEvidence",
+    `原始 F/L/R ${numericText(tof.raw_front_mm)} / ${
+      numericText(tof.raw_left_mm)
+    } / ${numericText(tof.raw_right_mm)} mm · 滤波 ${
+      numericText(tof.front_mm)
+    } / ${numericText(tof.left_mm)} / ${
+      numericText(tof.right_mm)
+    } mm · ${quality}`,
+  );
+  setText(
+    "imuEvidence",
+    imu.imu_available
+      ? `yaw ${numericText(imu.imu_yaw_deg)}° · ${
+        numericText(imu.yaw_rate_dps)
+      }°/s · a ${numericText(imu.accel_forward_mps2)} m/s² · 置信 ${
+        numericText(Number(imu.pose_confidence) * 100, 0)
+      }%`
+      : "未配置 / 降级到编码器与墙面约束",
+  );
+  setText(
+    "controlEvidence",
+    `${valueText(control.state, "IDLE")} · ${
+      valueText(control.action_id, "无 action_id")
+    } · 进度 ${numericText(control.progress_ticks)} ticks · 剩余 ${
+      numericText(control.remaining_ticks)
+    } ticks · 航差 ${numericText(control.heading_error_deg)}° · tick ${
+      numericText(control.controller_period_ms)
+    } ms`,
+  );
+  setText(
+    "slipEstimateEvidence",
+    `${percentagePair(
+      slip.estimated_left,
+      slip.estimated_right,
+    )} · ${valueText(slip.estimated_quality, "insufficient")}`,
+  );
+  setText(
+    "estimatedPoseEvidence",
+    `${poseText(pose.estimated)} · 置信 ${
+      Number.isFinite(Number(pose.estimated?.confidence))
+        ? `${numericText(Number(pose.estimated.confidence) * 100, 0)}%`
+        : "-"
+    }`,
+  );
+  setText(
+    "actionCompletionEvidence",
+    control.action_id
+      ? `${control.action_id} · ${valueText(control.state)} · 剩余 ${
+        numericText(control.remaining_ticks)
+      } ticks`
+      : "等待动作",
+  );
+  setText(
+    "safetyEvidence",
+    `${valueText(safety.state, "OFFLINE")} · ${
+      Array.isArray(safety.quality_flags) && safety.quality_flags.length
+        ? safety.quality_flags.join(", ")
+        : "无安全告警"
+    }`,
+  );
+  setText(
+    "lastPhysicalError",
+    safety.last_error
+      ? `${valueText(safety.last_error.code, "ERROR")} · ${
+        valueText(safety.last_error.message, safety.last_error.reason)
+      }`
+      : "无",
+  );
+
+  const truthCard = $("truthEvaluationCard");
+  truthCard.hidden = !truth_evaluation_only;
+  if (truth_evaluation_only) {
+    setText(
+      "poseComparisonEvidence",
+      `估值 ${poseText(pose.estimated)} · 真值 ${
+        poseText(pose.truth)
+      } · 位置误差 ${numericText(pose.position_error_mm)} mm · 航向误差 ${
+        numericText(pose.yaw_error_deg)
+      }°`,
+    );
+    setText(
+      "truthSlipEvidence",
+      `真值 L/R ${
+        percentagePair(slip.truth_left, slip.truth_right)
+      } · 估值差 ${
+        percentagePair(slip.left_delta, slip.right_delta)
+      } · 仅评估，不进入控制闭环`,
+    );
+  }
 }
 
 function renderLease(control, isController) {

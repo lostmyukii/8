@@ -122,10 +122,204 @@ class DashboardState:
                 "maze": self.maze.to_dict(),
                 "pose": self.pose_estimate.to_dict(),
                 "slip": self.slip_estimate.to_dict(),
+                "physical_evidence": self._physical_evidence_locked(
+                    tasks
+                ),
                 "auto_tune_enabled": self.auto_tune_enabled,
                 "logs": list(self.logs),
                 "tasks": tasks,
             }
+
+    def _physical_evidence_locked(
+        self,
+        tasks: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        telemetry = dict(self.telemetry)
+        task = tasks[-1] if tasks else None
+        profile_record = (
+            task.get("physical_profile_snapshot")
+            if isinstance(task, Mapping)
+            else None
+        )
+        profile_snapshot = (
+            profile_record.get("snapshot")
+            if isinstance(profile_record, Mapping)
+            else None
+        )
+        if not isinstance(profile_snapshot, Mapping):
+            profile_snapshot = {}
+        geometry = profile_snapshot.get("geometry")
+        body = profile_snapshot.get("body")
+        surface = profile_snapshot.get("surface")
+        geometry = geometry if isinstance(geometry, Mapping) else {}
+        body = body if isinstance(body, Mapping) else {}
+        surface = surface if isinstance(surface, Mapping) else {}
+        truth = (
+            telemetry.get("sim_truth")
+            if telemetry.get("simulated") is True
+            and isinstance(telemetry.get("sim_truth"), Mapping)
+            else None
+        )
+        truth_left = (
+            truth.get("left_slip_rate")
+            if isinstance(truth, Mapping)
+            else None
+        )
+        truth_right = (
+            truth.get("right_slip_rate")
+            if isinstance(truth, Mapping)
+            else None
+        )
+        estimated_left = telemetry.get("slip_left")
+        estimated_right = telemetry.get("slip_right")
+        last_error = (
+            dict(self.current_action)
+            if isinstance(self.current_action, Mapping)
+            and self.current_action.get("type") == "error"
+            else None
+        )
+        return {
+            "mode": (
+                task.get("mode")
+                if isinstance(task, Mapping)
+                else (
+                    "simulation"
+                    if telemetry.get("simulated") is True
+                    else "real"
+                )
+            ),
+            "profile": {
+                "profile_id": (
+                    task.get("physical_profile_id")
+                    if isinstance(task, Mapping)
+                    else telemetry.get("physical_profile_id")
+                ),
+                "digest": (
+                    task.get("physical_profile_digest")
+                    if isinstance(task, Mapping)
+                    else telemetry.get("physical_profile_digest")
+                ),
+                "random_seed": (
+                    task.get("random_seed")
+                    if isinstance(task, Mapping)
+                    else profile_record.get("random_seed")
+                    if isinstance(profile_record, Mapping)
+                    else None
+                ),
+                "controller_version": (
+                    task.get("controller_version")
+                    if isinstance(task, Mapping)
+                    else None
+                ),
+                "webots_version": (
+                    task.get("webots_version")
+                    if isinstance(task, Mapping)
+                    else None
+                ),
+            },
+            "vehicle": {
+                "total_mass_kg": body.get("total_mass_kg"),
+                "center_of_mass_m": body.get("center_of_mass_m"),
+                "wheel_radius_m": geometry.get("wheel_radius_m"),
+                "axle_track_m": geometry.get("axle_track_m"),
+                "surface_profile": (
+                    telemetry.get("friction_profile")
+                    or surface.get("profile")
+                ),
+            },
+            "wheel": {
+                key: telemetry.get(key)
+                for key in (
+                    "wheel_angle_left_rad",
+                    "wheel_angle_right_rad",
+                    "wheel_speed_left_rad_s",
+                    "wheel_speed_right_rad_s",
+                    "pwm_left",
+                    "pwm_right",
+                    "motor_torque_left_nm",
+                    "motor_torque_right_nm",
+                    "enc_left",
+                    "enc_right",
+                )
+            },
+            "tof": {
+                key: telemetry.get(key)
+                for key in (
+                    "raw_front_mm",
+                    "raw_left_mm",
+                    "raw_right_mm",
+                    "front_mm",
+                    "left_mm",
+                    "right_mm",
+                    "quality_flags",
+                )
+            },
+            "imu": {
+                key: telemetry.get(key)
+                for key in (
+                    "imu_available",
+                    "imu_yaw_deg",
+                    "yaw_rate_dps",
+                    "accel_forward_mps2",
+                    "pose_confidence",
+                )
+            },
+            "control": {
+                key: telemetry.get(key)
+                for key in (
+                    "state",
+                    "action_id",
+                    "progress_ticks",
+                    "remaining_ticks",
+                    "heading_error_deg",
+                    "controller_period_ms",
+                    "motor_available_torque_nm",
+                )
+            },
+            "slip": {
+                "estimated_left": estimated_left,
+                "estimated_right": estimated_right,
+                "estimated_quality": telemetry.get("slip_quality"),
+                "truth_left": truth_left,
+                "truth_right": truth_right,
+                "left_delta": _difference(
+                    estimated_left,
+                    truth_left,
+                ),
+                "right_delta": _difference(
+                    estimated_right,
+                    truth_right,
+                ),
+            },
+            "pose": {
+                "estimated": {
+                    "x_mm": telemetry.get("x_mm"),
+                    "y_mm": telemetry.get("y_mm"),
+                    "yaw_deg": telemetry.get("yaw_deg"),
+                    "confidence": telemetry.get("pose_confidence"),
+                },
+                "truth": (
+                    None if truth is None else dict(truth)
+                ),
+                "position_error_mm": (
+                    None
+                    if telemetry.get("truth_error_cm") is None
+                    else _scaled_number(
+                        telemetry.get("truth_error_cm"),
+                        10.0,
+                    )
+                ),
+                "yaw_error_deg": telemetry.get(
+                    "truth_yaw_error_deg"
+                ),
+                "truth_evaluation_only": truth is not None,
+            },
+            "safety": {
+                "state": telemetry.get("state"),
+                "quality_flags": telemetry.get("quality_flags", []),
+                "last_error": last_error,
+            },
+        }
 
     def update_telemetry(self, telemetry: Mapping[str, Any]) -> None:
         with self._lock:
@@ -604,3 +798,17 @@ def _json_ready(value: Any) -> Any:
     if isinstance(value, (list, tuple, set, deque)):
         return [_json_ready(item) for item in value]
     return value
+
+
+def _difference(left: Any, right: Any) -> float | None:
+    try:
+        return float(left) - float(right)
+    except (TypeError, ValueError):
+        return None
+
+
+def _scaled_number(value: Any, scale: float) -> float | None:
+    try:
+        return float(value) * float(scale)
+    except (TypeError, ValueError):
+        return None

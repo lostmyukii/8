@@ -1156,7 +1156,7 @@ feat: version physical simulation runs
 - Modify: `rdk_maze_tuner/tests/test_replay.py`
 - Modify: `rdk_maze_tuner/tests/test_scoring.py`
 
-- [ ] **10.1 写控制台显示失败测试**
+- [x] **10.1 写控制台显示失败测试**
 
 Webots 实时画面下方必须显示：
 
@@ -1172,7 +1172,7 @@ Webots 实时画面下方必须显示：
 
 仿真真值必须明确标记“仅评估”，实车模式不得伪造该卡片。
 
-- [ ] **10.2 写回放和评分失败测试**
+- [x] **10.2 写回放和评分失败测试**
 
 回放清单新增同步通道：
 
@@ -1200,19 +1200,19 @@ fault
 
 缺失证据继续明确为缺失，不生成伪分数。更换评分 profile 只重算综合分，不改原始指标。
 
-- [ ] **10.3 实现 profile 选择和运行锁定**
+- [x] **10.3 实现 profile 选择和运行锁定**
 
 - 新任务创建前可选择四种 profile。
 - reset 后选择器锁定，只有回到可重置状态才能更换。
 - 页面明确显示当前 run 使用的 profile，而不是全局默认值。
 - profile 切换需要控制权租约；急停仍允许两名已登录用户操作。
 
-- [ ] **10.4 实现物理证据卡片和回放轨**
+- [x] **10.4 实现物理证据卡片和回放轨**
 
 保持单屏控制中心，不开发独立 3D 桥接页面。复用 Webots 流作为画面，
 Dashboard 只显示结构化遥测、图表、任务、成绩和回放。
 
-- [ ] **10.5 浏览器验收**
+- [x] **10.5 浏览器验收**
 
 使用独立测试数据检查：
 
@@ -1223,7 +1223,7 @@ Dashboard 只显示结构化遥测、图表、任务、成绩和回放。
 - 实车/仿真标识不会混淆。
 - 估值与真值标签在小屏仍清晰。
 
-- [ ] **10.6 运行 JavaScript、目标测试和完整回归**
+- [x] **10.6 运行 JavaScript、目标测试和完整回归**
 
 ```bash
 for file in rdk_maze_tuner/dashboard/static/*.js; do
@@ -1235,7 +1235,7 @@ done
   rdk_maze_tuner/tests/test_scoring.py -q
 ```
 
-- [ ] **10.7 提交检查点**
+- [x] **10.7 提交检查点**
 
 ```text
 feat: expose physical simulation evidence

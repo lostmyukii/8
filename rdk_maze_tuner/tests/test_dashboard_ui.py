@@ -83,6 +83,26 @@ def test_dashboard_v2_has_complete_mission_control_dom_contract(tmp_path):
         "replayKeyEvents",
         "replayEventDetail",
         "replayRunSelect",
+        "physicalProfileInput",
+        "physicalProfileId",
+        "physicalProfileDigest",
+        "physicalRandomSeed",
+        "physicalWebotsVersion",
+        "physicalMass",
+        "physicalCenterOfMass",
+        "physicalWheelGeometry",
+        "physicalSurface",
+        "wheelEvidence",
+        "tofEvidence",
+        "imuEvidence",
+        "controlEvidence",
+        "slipEstimateEvidence",
+        "truthEvaluationCard",
+        "truthSlipEvidence",
+        "poseComparisonEvidence",
+        "actionCompletionEvidence",
+        "safetyEvidence",
+        "lastPhysicalError",
     }
 
     assert required_ids <= parser.ids
@@ -149,6 +169,34 @@ def test_dashboard_replay_uses_scored_monotonic_timeline_contract():
     assert "currentTime" in replay_source
     assert "结构化回放可用" in replay_source
     assert "listRuns" in replay_source
+    for channel in (
+        "physical_profile",
+        "wheel",
+        "tof",
+        "imu",
+        "control",
+        "slip_estimate",
+        "sim_truth",
+        "surface",
+        "fault",
+    ):
+        assert channel in replay_source
+
+
+def test_dashboard_profile_selection_is_run_scoped_and_truth_is_labeled():
+    api_source = (STATIC_DIR / "api.js").read_text(encoding="utf-8")
+    controls_source = (STATIC_DIR / "controls.js").read_text(
+        encoding="utf-8"
+    )
+    render_source = (STATIC_DIR / "render.js").read_text(encoding="utf-8")
+    state_source = (STATIC_DIR / "state.js").read_text(encoding="utf-8")
+
+    assert "/api/physical-profiles" in api_source
+    assert "physical_profile_id" in controls_source
+    assert "physical_profile_id" in render_source
+    assert "truth_evaluation_only" in render_source
+    assert "仅评估" in render_source
+    assert "selectedPhysicalProfileId" in state_source
 
 
 def test_dashboard_css_has_desktop_laptop_and_readonly_narrow_layouts():

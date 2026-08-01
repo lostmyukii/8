@@ -134,6 +134,26 @@ class ReplayService:
         timeline = []
         trajectory = []
         truth = []
+        evidence_tracks: dict[str, list[dict[str, Any]]] = {
+            "physical_profile": [],
+            "wheel": [],
+            "tof": [],
+            "imu": [],
+            "control": [],
+            "slip_estimate": [],
+            "sim_truth": [],
+            "surface": [],
+            "fault": [],
+        }
+        physical_profile = _run_physical_profile(run)
+        if physical_profile is not None:
+            evidence_tracks["physical_profile"].append(
+                {
+                    "t_ms": 0.0,
+                    "source": "run_snapshot",
+                    "payload": physical_profile,
+                }
+            )
         for event in events:
             t_ms = round(
                 (event["monotonic_ns"] - base_ns) / 1_000_000.0,
@@ -151,6 +171,17 @@ class ReplayService:
             }
             timeline.append(item)
             if isinstance(payload, Mapping):
+                for channel, evidence in _evidence_payloads(
+                    event_type=event["type"],
+                    payload=payload,
+                ).items():
+                    evidence_tracks[channel].append(
+                        {
+                            "t_ms": t_ms,
+                            "source": event["source"],
+                            "payload": evidence,
+                        }
+                    )
                 estimated = _pose_point(payload, t_ms=t_ms)
                 if estimated is not None:
                     trajectory.append(
@@ -178,7 +209,7 @@ class ReplayService:
         )
         scores = self._scores(run_id)
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "run_id": run_id,
             "mode": run["mode"],
             "status": run["status"],
@@ -198,6 +229,7 @@ class ReplayService:
                 run.get("param_version_id")
                 or metadata.get("param_version")
             ),
+            "physical_profile": physical_profile,
             "timeline": timeline,
             "key_events": [
                 item for item in timeline if item["key_event"]
@@ -205,6 +237,7 @@ class ReplayService:
             "tracks": {
                 "trajectory": trajectory,
                 "truth": truth,
+                **evidence_tracks,
             },
             "media": video,
             "score": scores[-1] if scores else None,
@@ -261,6 +294,8 @@ class ReplayService:
         value = json.loads(path.read_text(encoding="utf-8"))
         if not isinstance(value, dict) or value.get("run_id") != run_id:
             raise ValueError(f"invalid replay manifest for {run_id}")
+        if int(value.get("schema_version") or 0) < 2:
+            value = self.build_manifest(run_id)
         artifacts = self._artifacts(run_id)
         scores = self._scores(run_id)
         value["media"] = self._synchronized_video(
@@ -498,6 +533,133 @@ def _pose_point(
     if _finite_number(payload.get("pose_confidence")):
         point["confidence"] = float(payload["pose_confidence"])
     return point
+
+
+def _run_physical_profile(
+    run: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    profile_id = run.get("physical_profile_id")
+    if not profile_id:
+        return None
+    return {
+        "profile_id": profile_id,
+        "digest": run.get("physical_profile_digest"),
+        "random_seed": run.get("random_seed"),
+        "controller_version": run.get("controller_version"),
+        "webots_version": run.get("webots_version"),
+        "snapshot": run.get("physical_profile_snapshot"),
+    }
+
+
+def _evidence_payloads(
+    *,
+    event_type: str,
+    payload: Mapping[str, Any],
+) -> dict[str, dict[str, Any]]:
+    result: dict[str, dict[str, Any]] = {}
+    wheel = _present_fields(
+        payload,
+        (
+            "wheel_angle_left_rad",
+            "wheel_angle_right_rad",
+            "wheel_speed_left_rad_s",
+            "wheel_speed_right_rad_s",
+            "pwm_left",
+            "pwm_right",
+            "motor_torque_left_nm",
+            "motor_torque_right_nm",
+            "enc_left",
+            "enc_right",
+        ),
+    )
+    tof = _present_fields(
+        payload,
+        (
+            "raw_front_mm",
+            "raw_left_mm",
+            "raw_right_mm",
+            "front_mm",
+            "left_mm",
+            "right_mm",
+            "quality_flags",
+        ),
+    )
+    imu = _present_fields(
+        payload,
+        (
+            "imu_available",
+            "imu_yaw_deg",
+            "yaw_rate_dps",
+            "accel_forward_mps2",
+            "pose_confidence",
+        ),
+    )
+    control = _present_fields(
+        payload,
+        (
+            "state",
+            "action_id",
+            "progress_ticks",
+            "remaining_ticks",
+            "heading_error_deg",
+            "controller_period_ms",
+            "motor_available_torque_nm",
+        ),
+    )
+    slip = _present_fields(
+        payload,
+        (
+            "slip_left",
+            "slip_right",
+            "slip_rate",
+            "slip_quality",
+            "equivalent_friction",
+        ),
+    )
+    for name, value in (
+        ("wheel", wheel),
+        ("tof", tof),
+        ("imu", imu),
+        ("control", control),
+        ("slip_estimate", slip),
+    ):
+        if value:
+            result[name] = value
+    sim_truth = payload.get("sim_truth")
+    if isinstance(sim_truth, Mapping):
+        result["sim_truth"] = dict(sim_truth)
+    surface = _present_fields(
+        payload,
+        ("friction_profile", "active_surface"),
+    )
+    if isinstance(sim_truth, Mapping) and "active_surface" in sim_truth:
+        surface["truth_active_surface"] = sim_truth["active_surface"]
+    if surface:
+        result["surface"] = surface
+    if event_type == "error" or "safety" in event_type:
+        fault = _present_fields(
+            payload,
+            (
+                "code",
+                "message",
+                "action_id",
+                "front_mm",
+                "state",
+            ),
+        )
+        result["fault"] = fault or {"event_type": event_type}
+    return result
+
+
+def _present_fields(
+    payload: Mapping[str, Any],
+    fields: tuple[str, ...],
+) -> dict[str, Any]:
+    return {
+        field: payload[field]
+        for field in fields
+        if field in payload and payload[field] is not None
+    }
 
 
 def _channel(event_type: str) -> str:

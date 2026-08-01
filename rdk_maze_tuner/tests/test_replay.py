@@ -18,6 +18,9 @@ from rdk_maze_tuner.platform.video_recorder import (
     VideoArtifactRegistry,
     VideoBandwidthError,
 )
+from simulation.webots.maze_car.physical_config import (
+    PhysicalProfileRepository as YamlPhysicalProfileRepository,
+)
 
 
 FIXED_UTC = datetime(2026, 8, 1, 15, 0, tzinfo=UTC)
@@ -25,13 +28,32 @@ TEST_PASSWORD = "correct horse battery staple"
 
 
 def create_run(database: Database, run_id: str = "run-replay-1") -> None:
+    profile = YamlPhysicalProfileRepository().get("normal-v1")
     with database.connection() as connection:
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO physical_profiles (
+                profile_id, digest, random_seed, snapshot_json,
+                created_at_utc
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                "normal-v1",
+                profile.digest,
+                20260801,
+                profile.canonical_json,
+                "2026-08-01T14:58:00Z",
+            ),
+        )
         connection.execute(
             """
             INSERT INTO runs (
                 id, mode, status, created_at_utc,
-                started_at_utc, ended_at_utc, metadata_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                started_at_utc, ended_at_utc, metadata_json,
+                physical_profile_id, physical_profile_digest,
+                physical_profile_snapshot_json, random_seed,
+                controller_version, webots_version
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 run_id,
@@ -46,6 +68,21 @@ def create_run(database: Database, run_id: str = "run-replay-1") -> None:
                         "param_version": "param-v1",
                     }
                 ),
+                "normal-v1",
+                profile.digest,
+                json.dumps(
+                    {
+                        "profile_id": "normal-v1",
+                        "digest": profile.digest,
+                        "random_seed": 20260801,
+                        "snapshot": profile.to_dict(),
+                    },
+                    separators=(",", ":"),
+                    sort_keys=True,
+                ),
+                20260801,
+                "0.2.0",
+                "R2025a",
             ),
         )
 
@@ -73,10 +110,30 @@ def make_replay(tmp_path):
             "yaw_deg": 0.0,
             "pose_confidence": 0.9,
             "front_mm": 300,
+            "raw_front_mm": 301,
+            "raw_left_mm": 210,
+            "raw_right_mm": 220,
+            "left_mm": 209,
+            "right_mm": 219,
+            "enc_left": 1350,
+            "enc_right": 1348,
+            "wheel_speed_left_rad_s": 2.0,
+            "wheel_speed_right_rad_s": 1.9,
+            "imu_available": True,
+            "imu_yaw_deg": 0.5,
+            "yaw_rate_dps": 0.2,
+            "state": "MOVING_CELL",
+            "slip_left": 0.04,
+            "slip_right": 0.03,
+            "friction_profile": "normal",
             "sim_truth": {
                 "x_mm": 152.0,
                 "y_mm": 248.0,
                 "yaw_deg": 1.0,
+                "left_slip_rate": 0.05,
+                "right_slip_rate": 0.04,
+                "active_surface": "normal",
+                "collision_count": 0,
             },
         },
     )
@@ -129,6 +186,22 @@ def test_replay_manifest_uses_relative_monotonic_time_and_separate_truth(
     assert manifest["map_version"] == "map-v1"
     assert manifest["param_version"] == "param-v1"
     assert manifest["media"]["complete"] is False
+    assert manifest["physical_profile"]["profile_id"] == "normal-v1"
+    assert set(manifest["tracks"]) >= {
+        "trajectory",
+        "truth",
+        "physical_profile",
+        "wheel",
+        "tof",
+        "imu",
+        "control",
+        "slip_estimate",
+        "sim_truth",
+        "surface",
+        "fault",
+    }
+    assert len(manifest["tracks"]["wheel"]) == 1
+    assert len(manifest["tracks"]["sim_truth"]) == 1
 
 
 def test_finalize_writes_replay_manifest_and_indexes_jsonl(tmp_path):

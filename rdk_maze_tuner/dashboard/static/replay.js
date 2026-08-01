@@ -11,6 +11,18 @@ const CATEGORY_LABELS = {
   safety_stability: "安全与稳定",
 };
 
+const EVIDENCE_CHANNELS = [
+  "physical_profile",
+  "wheel",
+  "tof",
+  "imu",
+  "control",
+  "slip_estimate",
+  "sim_truth",
+  "surface",
+  "fault",
+];
+
 const model = {
   runId: "",
   manifest: null,
@@ -172,12 +184,26 @@ function renderManifest() {
   setText("scoreProfile", score?.profile_version || "等待原始指标");
   renderBreakdown(score?.breakdown || {});
   renderKeyEvents(manifest?.key_events || [], duration);
+  renderEvidenceTracks(manifest?.tracks || {});
 
   const seek = $("replaySeek");
   seek.max = String(Math.max(0, Math.round(duration)));
   seek.value = "0";
   $("replayPlayButton").disabled =
     !Array.isArray(manifest?.timeline) || manifest.timeline.length === 0;
+}
+
+function renderEvidenceTracks(tracks) {
+  EVIDENCE_CHANNELS.forEach((channel) => {
+    const rail = document.querySelector(`[data-channel="${channel}"]`);
+    if (!rail) return;
+    const items = Array.isArray(tracks[channel]) ? tracks[channel] : [];
+    rail.classList.toggle("is-populated", items.length > 0);
+    rail.dataset.count = String(items.length);
+    rail.title = items.length
+      ? `${channel} · ${items.length} 条证据`
+      : `${channel} · 本次运行无证据`;
+  });
 }
 
 function renderBreakdown(breakdown) {

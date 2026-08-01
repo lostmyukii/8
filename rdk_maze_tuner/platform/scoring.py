@@ -249,7 +249,37 @@ class ScoringService:
             scale=1.0,
         ) + _numbers(payloads, "truth_error_cm", scale=10.0)
         heading_errors = _numbers(payloads, "truth_yaw_error_deg")
-        slip_values = _numbers(telemetry, "slip_rate")
+        estimated_left_slip = _numbers(
+            telemetry,
+            "slip_left",
+            absolute=True,
+        )
+        estimated_right_slip = _numbers(
+            telemetry,
+            "slip_right",
+            absolute=True,
+        )
+        truth_left_slip = _nested_numbers(
+            telemetry,
+            "sim_truth",
+            "left_slip_rate",
+            absolute=True,
+        )
+        truth_right_slip = _nested_numbers(
+            telemetry,
+            "sim_truth",
+            "right_slip_rate",
+            absolute=True,
+        )
+        slip_values = _numbers(
+            telemetry,
+            "slip_rate",
+            absolute=True,
+        )
+        if not slip_values:
+            slip_values = (
+                estimated_left_slip + estimated_right_slip
+            )
         wall_accuracy = _mean_optional(
             _numbers(payloads, "map_wall_accuracy")
         )
@@ -271,6 +301,69 @@ class ScoringService:
             str(payload.get("code") or "")
             for payload in payloads
         ]
+        straight_errors = [
+            abs(float(event["payload"]["distance_error_mm"]))
+            for event in done_events
+            if event["payload"].get("name") == "move_cell"
+            and _finite_number(
+                event["payload"].get("distance_error_mm")
+            )
+        ]
+        turn_errors = [
+            abs(float(event["payload"]["turn_error_deg"]))
+            for event in done_events
+            if str(event["payload"].get("name") or "").startswith(
+                "turn_"
+            )
+            and _finite_number(event["payload"].get("turn_error_deg"))
+        ]
+        heading_drift = _numbers(
+            telemetry,
+            "heading_error_deg",
+            absolute=True,
+        )
+        truth_collisions = _nested_numbers(
+            telemetry,
+            "sim_truth",
+            "collision_count",
+        )
+        collision_errors = sum(
+            code
+            in {
+                "COLLISION",
+                "COLLISION_SUSPECTED",
+                "OBSTACLE_COLLISION",
+            }
+            for code in safety_codes
+        )
+        stall_count = sum(
+            code == "MOTOR_STALL" for code in safety_codes
+        )
+        wheelspin_count = sum(
+            code == "WHEELSPIN_PERSISTENT"
+            for code in safety_codes
+        )
+        safety_fault_count = sum(
+            code
+            in {
+                "OBSTACLE_TOO_CLOSE",
+                "ACTION_TIMEOUT",
+                "HEARTBEAT_TIMEOUT",
+                "ESTOP",
+                "BOUNDARY_VIOLATION",
+                "SENSOR_NONFINITE",
+                "DEVICE_MISSING",
+            }
+            for code in safety_codes
+        )
+        controller_periods = _numbers(
+            telemetry,
+            "controller_period_ms",
+        )
+        realtime_factors = _numbers(
+            telemetry,
+            "simulation_realtime_factor",
+        )
         completed = run["status"] == "COMPLETED"
         goal_reached = bool(
             completion
@@ -283,6 +376,13 @@ class ScoringService:
             "grid_position_accuracy": grid_accuracy,
             "position_rmse_mm": _rmse(position_errors),
             "heading_mae_deg": _mean_optional(heading_errors),
+            "straight_distance_error_mm": _mean_optional(
+                straight_errors
+            ),
+            "turn_error_deg": _mean_optional(turn_errors),
+            "heading_drift_deg": (
+                max(heading_drift) if heading_drift else None
+            ),
             "path_length_mm": None,
             "path_length_cells": completed_moves,
             "optimal_path_length_mm": None,
@@ -295,9 +395,29 @@ class ScoringService:
             "retry_count": len(action_errors),
             "max_slip_rate": max(slip_values) if slip_values else None,
             "avg_slip_rate": _mean_optional(slip_values),
-            "collision_count": sum(
-                code in {"COLLISION", "OBSTACLE_COLLISION"}
-                for code in safety_codes
+            "estimated_left_slip_rate": _mean_optional(
+                estimated_left_slip
+            ),
+            "estimated_right_slip_rate": _mean_optional(
+                estimated_right_slip
+            ),
+            "truth_left_slip_rate": _mean_optional(
+                truth_left_slip
+            ),
+            "truth_right_slip_rate": _mean_optional(
+                truth_right_slip
+            ),
+            "collision_count": max(
+                [collision_errors, *truth_collisions]
+            ),
+            "stall_count": stall_count,
+            "wheelspin_count": wheelspin_count,
+            "safety_fault_count": safety_fault_count,
+            "mean_controller_period_ms": _mean_optional(
+                controller_periods
+            ),
+            "mean_simulation_realtime_factor": _mean_optional(
+                realtime_factors
             ),
             "boundary_violation_count": sum(
                 code == "BOUNDARY_VIOLATION" for code in safety_codes
@@ -568,6 +688,26 @@ def _numbers(
         if not _finite_number(value):
             continue
         number = float(value) * scale
+        values.append(abs(number) if absolute else number)
+    return values
+
+
+def _nested_numbers(
+    payloads: list[Mapping[str, Any]],
+    parent: str,
+    field: str,
+    *,
+    absolute: bool = False,
+) -> list[float]:
+    values = []
+    for payload in payloads:
+        nested = payload.get(parent)
+        if not isinstance(nested, Mapping):
+            continue
+        value = nested.get(field)
+        if not _finite_number(value):
+            continue
+        number = float(value)
         values.append(abs(number) if absolute else number)
     return values
 

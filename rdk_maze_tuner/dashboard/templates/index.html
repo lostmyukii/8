@@ -146,6 +146,71 @@
                 <strong id="poseCorrection">等待定位证据</strong>
               </div>
             </div>
+
+            <section id="physicalEvidencePanel" class="physical-evidence" aria-label="物理仿真实时证据">
+              <header class="physical-evidence__heading">
+                <div>
+                  <p class="eyebrow">PHYSICAL EVIDENCE</p>
+                  <h3>底盘、传感器与控制闭环</h3>
+                </div>
+                <span id="physicalEvidenceMode" class="status-pill status-pill--lost">等待物理遥测</span>
+              </header>
+
+              <div class="physical-identity">
+                <div><span>Profile</span><strong id="physicalProfileId">-</strong></div>
+                <div><span>摘要</span><strong id="physicalProfileDigest">-</strong></div>
+                <div><span>随机种子</span><strong id="physicalRandomSeed">-</strong></div>
+                <div><span>Webots</span><strong id="physicalWebotsVersion">-</strong></div>
+                <div><span>质量</span><strong id="physicalMass">-</strong></div>
+                <div><span>重心</span><strong id="physicalCenterOfMass">-</strong></div>
+                <div><span>轮径 / 轮距</span><strong id="physicalWheelGeometry">-</strong></div>
+                <div><span>当前地面</span><strong id="physicalSurface">-</strong></div>
+              </div>
+
+              <div class="physical-detail-grid">
+                <article>
+                  <span>车轮证据</span>
+                  <strong id="wheelEvidence">角度 / 轮速 / PWM / 力矩 / 编码器</strong>
+                </article>
+                <article>
+                  <span>三向 ToF</span>
+                  <strong id="tofEvidence">原始值 / 滤波值 / 质量</strong>
+                </article>
+                <article>
+                  <span>IMU 与车头</span>
+                  <strong id="imuEvidence">航向 / 角速度 / 置信度</strong>
+                </article>
+                <article>
+                  <span>控制完成条件</span>
+                  <strong id="controlEvidence">状态 / 剩余 ticks / 航向误差</strong>
+                </article>
+                <article>
+                  <span>控制侧滑移估算</span>
+                  <strong id="slipEstimateEvidence">左 / 右 / 质量</strong>
+                </article>
+                <article>
+                  <span>动作完成</span>
+                  <strong id="actionCompletionEvidence">等待动作</strong>
+                </article>
+                <article>
+                  <span>安全状态</span>
+                  <strong id="safetyEvidence">等待遥测</strong>
+                </article>
+                <article>
+                  <span>最近错误</span>
+                  <strong id="lastPhysicalError">无</strong>
+                </article>
+                <article>
+                  <span>估算位姿</span>
+                  <strong id="estimatedPoseEvidence">x / y / yaw / 置信度</strong>
+                </article>
+                <article id="truthEvaluationCard" class="truth-evaluation-card" hidden>
+                  <span>Webots 真值 · 仅评估</span>
+                  <strong id="poseComparisonEvidence">估值 / 真值 / 位置与角度误差</strong>
+                  <small id="truthSlipEvidence">真值滑移与估算差异</small>
+                </article>
+              </div>
+            </section>
           </article>
 
           <aside class="console-card task-card">
@@ -167,6 +232,12 @@
               <label>
                 <span>参数版本</span>
                 <input id="paramVersionInput" value="1">
+              </label>
+              <label>
+                <span>物理 Profile（仿真）</span>
+                <select id="physicalProfileInput">
+                  <option value="normal-v1">normal-v1</option>
+                </select>
               </label>
               <fieldset>
                 <legend>目标格</legend>
@@ -313,6 +384,33 @@
             </div>
             <div class="replay-rail__lane">
               <span>安全</span><i data-channel="safety"></i>
+            </div>
+            <div class="replay-rail__lane">
+              <span>Profile</span><i data-channel="physical_profile"></i>
+            </div>
+            <div class="replay-rail__lane">
+              <span>车轮</span><i data-channel="wheel"></i>
+            </div>
+            <div class="replay-rail__lane">
+              <span>ToF</span><i data-channel="tof"></i>
+            </div>
+            <div class="replay-rail__lane">
+              <span>IMU</span><i data-channel="imu"></i>
+            </div>
+            <div class="replay-rail__lane">
+              <span>控制</span><i data-channel="control"></i>
+            </div>
+            <div class="replay-rail__lane">
+              <span>滑移估值</span><i data-channel="slip_estimate"></i>
+            </div>
+            <div class="replay-rail__lane">
+              <span>仿真真值</span><i data-channel="sim_truth"></i>
+            </div>
+            <div class="replay-rail__lane">
+              <span>地面</span><i data-channel="surface"></i>
+            </div>
+            <div class="replay-rail__lane">
+              <span>故障</span><i data-channel="fault"></i>
             </div>
             <div id="replayKeyEvents" class="replay-key-events"></div>
             <b id="replayPlayhead" class="replay-playhead" aria-hidden="true"></b>

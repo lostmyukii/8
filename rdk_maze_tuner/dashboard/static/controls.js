@@ -18,6 +18,7 @@ import {
   setActiveTask,
   setAuthSession,
   setLeaseToken,
+  setSelectedPhysicalProfile,
   setSelectedMode,
 } from "./state.js";
 import { showNotice } from "./render.js";
@@ -37,7 +38,7 @@ function coerceValue(raw, valueType) {
 
 function taskDefinition() {
   const appState = getAppState();
-  return {
+  const definition = {
     mode: appState.selectedMode,
     map_version: $("mapVersionInput").value.trim(),
     param_version: $("paramVersionInput").value.trim(),
@@ -50,6 +51,11 @@ function taskDefinition() {
     },
     max_steps: 500,
   };
+  if (appState.selectedMode === "simulation") {
+    definition.physical_profile_id =
+      appState.selectedPhysicalProfileId || "normal-v1";
+  }
+  return definition;
 }
 
 function errorMessage(error) {
@@ -131,6 +137,10 @@ export function bindControls({ refreshState, onAuthenticated, onLogout }) {
     });
   });
 
+  $("physicalProfileInput").addEventListener("change", (event) => {
+    setSelectedPhysicalProfile(event.target.value);
+  });
+
   $("claimControlButton").addEventListener("click", async () => {
     if (!getAppState().csrfToken) {
       showNotice("当前标签页缺少 CSRF 凭据，请重新登录后取得控制权。", {
@@ -164,7 +174,11 @@ export function bindControls({ refreshState, onAuthenticated, onLogout }) {
     await guardedOperation(
       async () => {
         let task = getAppState().activeTask;
-        if (!task || task.mode !== getAppState().selectedMode) {
+        const appState = getAppState();
+        const profileChanged =
+          appState.selectedMode === "simulation"
+          && task?.physical_profile_id !== appState.selectedPhysicalProfileId;
+        if (!task || task.mode !== appState.selectedMode || profileChanged) {
           task = await createTask(taskDefinition());
           setActiveTask(task.task_id);
         }

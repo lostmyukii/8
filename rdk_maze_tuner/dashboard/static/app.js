@@ -2,11 +2,13 @@ import {
   ApiError,
   currentUser,
   fetchDashboardState,
+  listPhysicalProfiles,
   openStateSocket,
 } from "./api.js";
 import {
   getAppState,
   setAuthenticated,
+  setPhysicalProfiles,
   setPayload,
   setSocketConnected,
   subscribe,
@@ -51,6 +53,10 @@ renderAuthGate(false);
 async function refreshState() {
   const payload = await fetchDashboardState();
   setPayload(payload);
+  if (!getAppState().physicalProfilesLoaded) {
+    const profiles = await listPhysicalProfiles();
+    setPhysicalProfiles(profiles.physical_profiles || []);
+  }
   return payload;
 }
 

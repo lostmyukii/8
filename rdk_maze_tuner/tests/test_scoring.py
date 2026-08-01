@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from rdk_maze_tuner.platform.database import Database
+from rdk_maze_tuner.platform.event_store import EventStore
 from rdk_maze_tuner.platform.scoring import (
     RawMetricsConflictError,
     ScoringService,
@@ -153,3 +154,84 @@ def test_conflicting_raw_metrics_are_rejected(tmp_path):
 
     with pytest.raises(RawMetricsConflictError):
         service.record_raw_metrics("run-score-1", changed)
+
+
+def test_physical_raw_metrics_are_derived_without_inventing_missing_values(
+    tmp_path,
+):
+    database, service = make_service(tmp_path)
+    ticks = iter(range(1_000_000_000, 1_000_000_020))
+    store = EventStore(
+        database=database,
+        runs_dir=tmp_path / "runs",
+        monotonic_ns=ticks.__next__,
+    )
+    store.append(
+        run_id="run-score-1",
+        event_type="telemetry",
+        source="simulation",
+        payload={
+            "truth_error_cm": 0.5,
+            "truth_yaw_error_deg": 1.5,
+            "heading_error_deg": 2.0,
+            "slip_left": 0.08,
+            "slip_right": 0.04,
+            "controller_period_ms": 8,
+            "simulation_realtime_factor": 0.72,
+            "sim_truth": {
+                "left_slip_rate": 0.10,
+                "right_slip_rate": 0.06,
+                "collision_count": 1,
+            },
+        },
+    )
+    store.append(
+        run_id="run-score-1",
+        event_type="done",
+        source="simulation",
+        payload={
+            "action_id": "move-1",
+            "name": "move_cell",
+            "success": True,
+            "distance_error_mm": 3.0,
+        },
+    )
+    store.append(
+        run_id="run-score-1",
+        event_type="done",
+        source="simulation",
+        payload={
+            "action_id": "turn-1",
+            "name": "turn_right",
+            "success": True,
+            "turn_error_deg": 1.25,
+        },
+    )
+    for code in (
+        "MOTOR_STALL",
+        "WHEELSPIN_PERSISTENT",
+        "OBSTACLE_TOO_CLOSE",
+    ):
+        store.append(
+            run_id="run-score-1",
+            event_type="error",
+            source="simulation",
+            payload={"action_id": code, "code": code},
+        )
+
+    metrics = service.derive_raw_metrics("run-score-1", store)
+
+    assert metrics["straight_distance_error_mm"] == 3.0
+    assert metrics["turn_error_deg"] == 1.25
+    assert metrics["heading_drift_deg"] == 2.0
+    assert metrics["estimated_left_slip_rate"] == 0.08
+    assert metrics["estimated_right_slip_rate"] == 0.04
+    assert metrics["truth_left_slip_rate"] == 0.10
+    assert metrics["truth_right_slip_rate"] == 0.06
+    assert metrics["collision_count"] == 1
+    assert metrics["stall_count"] == 1
+    assert metrics["wheelspin_count"] == 1
+    assert metrics["safety_fault_count"] == 1
+    assert metrics["mean_controller_period_ms"] == 8.0
+    assert metrics["mean_simulation_realtime_factor"] == 0.72
+    assert metrics["optimal_path_length_mm"] is None

@@ -91,6 +91,7 @@ else
   git -C "${release_dir}" checkout --detach "${source_ref}"
 fi
 chown -R maze:maze "${release_dir}"
+cd "${release_dir}"
 
 for required in requirements.txt requirements-dev.txt; do
   if [[ ! -r ${release_dir}/${required} ]]; then

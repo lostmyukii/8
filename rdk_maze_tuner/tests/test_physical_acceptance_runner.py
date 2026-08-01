@@ -418,6 +418,7 @@ def test_deploy_requires_acceptance_before_atomic_switch_and_exact_rollback():
     )
 
     assert "run_physical_acceptance" in deploy
+    assert 'cd "${release_dir}"' in deploy
     assert deploy.index("run_physical_acceptance") < deploy.index(
         'mv -Tf "${candidate_link}" "${current_link}"'
     )

@@ -115,7 +115,7 @@ sudo -u maze env PYTHONDONTWRITEBYTECODE=1 \
 sudo -u maze "${release_dir}/.venv/bin/pio" run \
   -d "${release_dir}/esp32_firmware"
 while IFS= read -r javascript; do
-  node --check "${javascript}"
+  node --input-type=module --check <"${javascript}"
 done < <(find "${release_dir}/rdk_maze_tuner/dashboard/static" \
   -maxdepth 1 -type f -name '*.js' -print | sort)
 

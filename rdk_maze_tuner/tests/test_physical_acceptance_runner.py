@@ -425,7 +425,7 @@ def test_deploy_requires_acceptance_before_atomic_switch_and_exact_rollback():
     assert "pytest" in deploy
     assert ".venv/bin/pio" in deploy
     assert '" run' in deploy
-    assert "node --check" in deploy
+    assert "node --input-type=module --check" in deploy
     assert "wait_tcp 127.0.0.1 8765" in deploy
     assert "require_loopback_listener" in deploy
     assert "chmod -R a-w" in deploy

@@ -451,6 +451,7 @@ def test_caddy_keeps_simulation_behind_platform_authentication():
     assert "reverse_proxy 127.0.0.1:8000" in caddyfile
     assert "6080" not in caddyfile
     assert "5901" not in caddyfile
+    assert "admin off" not in caddyfile
 
 
 def test_release_deployment_validates_caddy_and_local_https_vhost():
@@ -462,3 +463,9 @@ def test_release_deployment_validates_caddy_and_local_https_vhost():
     assert "systemctl reload caddy.service" in deploy
     assert "--resolve" in deploy
     assert "127.0.0.1" in deploy
+
+    installer = Path("deploy/server/install_host.sh").read_text(
+        encoding="utf-8"
+    )
+    assert "ufw allow 80/tcp" in installer
+    assert "ufw allow 443/tcp" in installer

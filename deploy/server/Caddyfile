@@ -1,7 +1,3 @@
-{
-	admin off
-}
-
 8.ilelezhan.cn {
 	encode zstd gzip
 

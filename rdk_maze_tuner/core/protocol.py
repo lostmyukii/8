@@ -28,6 +28,19 @@ FUSION_TELEMETRY_FIELDS = frozenset(
         "quality_flags",
     }
 )
+SIMULATION_TRUTH_FIELDS = frozenset(
+    {
+        "x_mm",
+        "y_mm",
+        "yaw_deg",
+        "linear_speed_mm_s",
+        "angular_velocity_dps",
+        "left_slip_rate",
+        "right_slip_rate",
+        "active_surface",
+        "collision_count",
+    }
+)
 
 
 class ProtocolError(ValueError):
@@ -112,19 +125,61 @@ def extract_simulation_truth(
     required = ("x_mm", "y_mm", "yaw_deg")
     result: Message = {}
     for key in required:
-        value = truth.get(key)
-        if isinstance(value, bool):
-            raise ProtocolError(f"sim_truth.{key} must be numeric")
-        try:
-            number = float(value)
-        except (TypeError, ValueError) as exc:
-            raise ProtocolError(
-                f"sim_truth.{key} must be numeric"
-            ) from exc
-        if not math.isfinite(number):
-            raise ProtocolError(f"sim_truth.{key} must be finite")
-        result[key] = number
-    for key in ("cell", "heading"):
+        result[key] = _truth_number(truth, key, required=True)
+    for key in (
+        "linear_speed_mm_s",
+        "angular_velocity_dps",
+        "left_slip_rate",
+        "right_slip_rate",
+    ):
         if key in truth:
-            result[key] = truth[key]
+            result[key] = _truth_number(truth, key, required=False)
+    if "active_surface" in truth:
+        active_surface = truth["active_surface"]
+        if not isinstance(active_surface, str) or not active_surface.strip():
+            raise ProtocolError(
+                "sim_truth.active_surface must be non-empty text"
+            )
+        result["active_surface"] = active_surface.strip()
+    if "collision_count" in truth:
+        collision_count = truth["collision_count"]
+        if (
+            isinstance(collision_count, bool)
+            or not isinstance(collision_count, int)
+            or collision_count < 0
+        ):
+            raise ProtocolError(
+                "sim_truth.collision_count must be a non-negative integer"
+            )
+        result["collision_count"] = collision_count
     return result
+
+
+def _truth_number(
+    truth: Mapping[str, Any],
+    key: str,
+    *,
+    required: bool,
+) -> float:
+    value = truth.get(key)
+    if value is None and not required:
+        raise ProtocolError(f"sim_truth.{key} must be numeric")
+    if isinstance(value, bool):
+        raise ProtocolError(f"sim_truth.{key} must be numeric")
+    try:
+        number = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ProtocolError(
+            f"sim_truth.{key} must be numeric"
+        ) from exc
+    if not math.isfinite(number):
+        raise ProtocolError(f"sim_truth.{key} must be finite")
+    if key in ("left_slip_rate", "right_slip_rate") and not (
+        0.0 <= number <= 1.0
+    ):
+        raise ProtocolError(f"sim_truth.{key} must be between 0 and 1")
+    if key == "linear_speed_mm_s" and number < 0:
+        raise ProtocolError(
+            "sim_truth.linear_speed_mm_s must not be negative"
+        )
+    return number

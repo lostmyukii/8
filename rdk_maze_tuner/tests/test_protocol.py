@@ -1,10 +1,12 @@
 from rdk_maze_tuner.core.protocol import (
     ProtocolError,
+    SIMULATION_TRUTH_FIELDS,
     build_action,
     build_heartbeat,
     build_set_params,
     decode_line,
     encode_message,
+    extract_simulation_truth,
 )
 
 
@@ -46,3 +48,24 @@ def test_builders_create_documented_messages():
         "target_ticks": 1350,
     }
 
+
+def test_simulation_truth_is_strictly_evaluation_only():
+    truth = extract_simulation_truth(
+        {
+            "sim_truth": {
+                "x_mm": 100,
+                "y_mm": 200,
+                "yaw_deg": 30,
+                "linear_speed_mm_s": 50,
+                "angular_velocity_dps": 5,
+                "left_slip_rate": 0.1,
+                "right_slip_rate": 0.2,
+                "active_surface": "normal",
+                "collision_count": 0,
+                "cell": [0, 0],
+            }
+        }
+    )
+
+    assert frozenset(truth) == SIMULATION_TRUTH_FIELDS
+    assert "cell" not in truth

@@ -420,7 +420,7 @@ Task 3 实施记录（2026-08-01）：
 - Modify: `rdk_maze_tuner/core/protocol.py`
 - Modify: `rdk_maze_tuner/tests/test_protocol.py`
 
-- [ ] **4.1 写 fake device 失败测试**
+- [x] **4.1 写 fake device 失败测试**
 
 覆盖：
 
@@ -434,7 +434,7 @@ Task 3 实施记录（2026-08-01）：
 - IMU、陀螺仪和加速度计非有限数返回 `SIM_PHYSICS_ERROR`。
 - 电机命令受最大速度、最大力矩和有限数限制。
 
-- [ ] **4.2 写真值隔离失败测试**
+- [x] **4.2 写真值隔离失败测试**
 
 覆盖：
 
@@ -460,7 +460,7 @@ Run:
 
 Expected: RED，因为物理设备模块尚不存在。
 
-- [ ] **4.3 实现唯一 Webots 设备入口**
+- [x] **4.3 实现唯一 Webots 设备入口**
 
 `PhysicalDeviceAdapter` 负责：
 
@@ -473,7 +473,7 @@ Expected: RED，因为物理设备模块尚不存在。
 Webots API 只存在于适配器和 `TruthObserver`，控制内核不 import
 `controller` 包，因此可以用 fake devices 测试。
 
-- [ ] **4.4 实现普通 telemetry**
+- [x] **4.4 实现普通 telemetry**
 
 至少输出：
 
@@ -491,9 +491,9 @@ friction_profile
 
 普通 telemetry 暂不产生动作状态和 PID 输出，留给 Task 6 合并。
 
-- [ ] **4.5 运行目标测试和完整回归**
+- [x] **4.5 运行目标测试和完整回归**
 
-- [ ] **4.6 提交检查点**
+- [x] **4.6 提交检查点**
 
 ```text
 feat: add Webots physical device telemetry
@@ -504,6 +504,23 @@ P2 第一部分完成条件：
 - 所有设备数据来自 Webots device。
 - 同一 profile/seed 的噪声输出可重现。
 - 真值和普通设备数据在类型和调用关系上隔离。
+
+Task 4 实施记录（2026-08-01）：
+
+- RED：目标测试因物理设备、telemetry 和真值模块不存在，以及协议未提供
+  严格真值 allowlist 而在收集阶段失败。
+- `PhysicalDeviceAdapter` 是唯一设备入口；严格解析 10 个固定设备名，
+  统一 8 ms 启用周期、编码器基准/量化、轮速、ToF 范围与 EMA 滤波、
+  固定种子噪声/dropout、惯导换算和电机速度/力矩限幅。
+- 任何核心设备缺失、初始化失败、读数非有限或电机命令异常都会先尝试
+  将左右电机速度归零，再返回明确的 `SIM_*` 错误码。
+- `PhysicalDeviceSample` 为不可变普通设备证据；`PhysicalTelemetryProvider`
+  不能访问 Supervisor。`TruthObserver` 独立读取 Supervisor，协议仅允许
+  9 个评估字段，`sim_truth` 整体不会进入 PoseFusion 或 SlipEstimator。
+- 固定 profile/seed 的噪声与 dropout 序列已由双适配器测试证明可重复。
+- 目标测试：26 passed。
+- 完整 Python 回归：204 passed；`compileall` 通过。
+- ESP32 PlatformIO 构建通过：RAM 6.9%，Flash 24.2%。
 
 ---
 

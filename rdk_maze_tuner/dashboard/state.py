@@ -51,6 +51,15 @@ class DashboardState:
         self._clock_ms = clock_ms or (lambda: int(time.time() * 1000))
         self._lock = RLock()
         self._manual_action_index = 0
+        self._task_orchestrator: Any = None
+
+    def attach_task_orchestrator(self, orchestrator: Any) -> None:
+        with self._lock:
+            self._task_orchestrator = orchestrator
+
+    def set_maze(self, maze: MazeMap) -> None:
+        with self._lock:
+            self.maze = maze
 
     @property
     def connected(self) -> bool:
@@ -60,6 +69,11 @@ class DashboardState:
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
+            tasks = (
+                []
+                if self._task_orchestrator is None
+                else self._task_orchestrator.list_tasks()
+            )
             return {
                 "connected": self.connected,
                 "telemetry": _json_ready(self.telemetry),
@@ -70,6 +84,7 @@ class DashboardState:
                 "maze": self.maze.to_dict(),
                 "auto_tune_enabled": self.auto_tune_enabled,
                 "logs": list(self.logs),
+                "tasks": tasks,
             }
 
     def update_telemetry(self, telemetry: Mapping[str, Any]) -> None:

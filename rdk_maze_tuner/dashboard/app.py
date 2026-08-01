@@ -16,6 +16,9 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from rdk_maze_tuner.core.device_session import DeviceSession
+from rdk_maze_tuner.core.maze_map import MazeMap
+from rdk_maze_tuner.core.maze_planner import MazePlanner
+from rdk_maze_tuner.core.maze_runner import MazeRunner
 from rdk_maze_tuner.core.param_manager import ParamManager, ParamValidationError
 from rdk_maze_tuner.core.serial_client import SerialClient, SerialClientError, open_serial
 from rdk_maze_tuner.core.tcp_stream import open_tcp
@@ -28,6 +31,7 @@ from rdk_maze_tuner.dashboard.routes.control import (
     CONTROL_LEASE_HEADER_NAME,
     create_control_router,
 )
+from rdk_maze_tuner.dashboard.routes.tasks import create_tasks_router
 from rdk_maze_tuner.dashboard.state import DashboardState
 from rdk_maze_tuner.platform.auth import (
     AuthService,
@@ -40,6 +44,17 @@ from rdk_maze_tuner.platform.control_lease import (
     LeasePermissionError,
 )
 from rdk_maze_tuner.platform.database import Database
+from rdk_maze_tuner.platform.event_store import EventStore
+from rdk_maze_tuner.platform.modes import (
+    ModeAdapterError,
+    RealModeAdapter,
+    SimulationModeAdapter,
+)
+from rdk_maze_tuner.platform.task_orchestrator import (
+    TaskConflictError,
+    TaskOrchestrator,
+    TaskRecord,
+)
 
 
 PACKAGE_DIR = Path(__file__).resolve().parent
@@ -60,6 +75,8 @@ def create_app(
     auth_service: Optional[AuthService] = None,
     control_lease_service: Optional[ControlLeaseService] = None,
     login_rate_limiter: Optional[LoginRateLimiter] = None,
+    task_orchestrator: Optional[TaskOrchestrator] = None,
+    client_mode: Optional[str] = None,
 ) -> FastAPI:
     resolved_database = (
         database
@@ -93,6 +110,53 @@ def create_app(
         client=coordinated_client,
     )
     runtime = SerialDashboardRuntime(state=dashboard_state)
+    platform_config = PlatformConfig.from_env()
+    if task_orchestrator is None:
+        simulation_adapter = (
+            SimulationModeAdapter(
+                session_factory=lambda _endpoint: coordinated_client
+            )
+            if coordinated_client is not None
+            and client_mode == "simulation"
+            else SimulationModeAdapter()
+        )
+        adapters = {
+            "simulation": simulation_adapter,
+            "real": RealModeAdapter(),
+        }
+
+        def runner_factory(task: TaskRecord) -> MazeRunner:
+            adapter = adapters[task.mode]
+            if not isinstance(adapter, SimulationModeAdapter):
+                raise RuntimeError(
+                    "real task execution requires the future RDK X3 Agent"
+                )
+            maze = MazeMap(
+                wall_threshold_mm=int(
+                    dashboard_state.params.get("tof.wall_threshold_mm")
+                )
+            )
+            dashboard_state.set_maze(maze)
+            return MazeRunner(
+                client=adapter.session,
+                params=dashboard_state.params,
+                maze=maze,
+                planner=MazePlanner(),
+                action_prefix=task.run_id or task.task_id,
+            )
+
+        resolved_tasks = TaskOrchestrator(
+            database=resolved_database,
+            event_store=EventStore(
+                database=resolved_database,
+                runs_dir=platform_config.runs_dir,
+            ),
+            adapters=adapters,
+            runner_factory=runner_factory,
+        )
+    else:
+        resolved_tasks = task_orchestrator
+    dashboard_state.attach_task_orchestrator(resolved_tasks)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -100,6 +164,7 @@ def create_app(
         try:
             yield
         finally:
+            resolved_tasks.close()
             await runtime.stop()
 
     app = FastAPI(title="RDK Maze Tuner", version="0.1.0", lifespan=lifespan)
@@ -108,9 +173,13 @@ def create_app(
     app.state.control_lease = resolved_leases
     app.state.dashboard = dashboard_state
     app.state.runtime = runtime
+    app.state.task_orchestrator = resolved_tasks
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     app.include_router(create_auth_router(auth_context))
     app.include_router(create_control_router(auth_context, resolved_leases))
+    app.include_router(
+        create_tasks_router(auth_context, resolved_leases, resolved_tasks)
+    )
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> HTMLResponse:
@@ -146,15 +215,31 @@ def create_app(
         body = await _json_body(request)
         reason = str(body.get("reason") or "dashboard")
         try:
-            result = dashboard_state.estop(reason=reason)
+            owner = resolved_tasks.command_owner()
+            if owner is None:
+                result = dashboard_state.estop(reason=reason)
+                routed_to = "device"
+            else:
+                task = resolved_tasks.estop(owner["task_id"])
+                result = {
+                    "ok": True,
+                    "routed_to": "task",
+                    "task": task,
+                }
+                routed_to = "task"
             resolved_leases.audit_operation(
                 principal,
                 "estop",
-                details={"reason_provided": bool(reason)},
+                details={
+                    "reason_provided": bool(reason),
+                    "routed_to": routed_to,
+                },
             )
             return result
-        except SerialClientError as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        except TaskConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (ModeAdapterError, SerialClientError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     @app.post("/api/command/stop")
     async def api_stop(request: Request) -> dict[str, Any]:
@@ -163,15 +248,31 @@ def create_app(
         body = await _json_body(request)
         reason = str(body.get("reason") or "dashboard")
         try:
-            result = dashboard_state.stop(reason=reason)
+            owner = resolved_tasks.command_owner()
+            if owner is None:
+                result = dashboard_state.stop(reason=reason)
+                routed_to = "device"
+            else:
+                task = resolved_tasks.stop(owner["task_id"])
+                result = {
+                    "ok": True,
+                    "routed_to": "task",
+                    "task": task,
+                }
+                routed_to = "task"
             resolved_leases.audit_operation(
                 principal,
                 "stop",
-                details={"reason_provided": bool(reason)},
+                details={
+                    "reason_provided": bool(reason),
+                    "routed_to": routed_to,
+                },
             )
             return result
-        except SerialClientError as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        except TaskConflictError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (ModeAdapterError, SerialClientError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     @app.post("/api/command/action")
     async def api_action(request: Request) -> dict[str, Any]:
@@ -181,6 +282,15 @@ def create_app(
         name = str(body.get("name") or "")
         if name not in {"move_cell", "turn_left", "turn_right", "turn_back"}:
             raise HTTPException(status_code=400, detail="unknown action")
+        owner = resolved_tasks.command_owner()
+        if owner is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "manual action is blocked while active task "
+                    f"{owner['task_id']} owns motion commands"
+                ),
+            )
         result = dashboard_state.manual_action(name=name)
         resolved_leases.audit_operation(
             principal,
@@ -316,7 +426,18 @@ def run(args: argparse.Namespace) -> int:
     import uvicorn
 
     uvicorn.run(
-        create_app(params_path=args.params, limits_path=args.limits, client=client),
+        create_app(
+            params_path=args.params,
+            limits_path=args.limits,
+            client=client,
+            client_mode=(
+                "simulation"
+                if args.tcp
+                else "real"
+                if args.serial
+                else None
+            ),
+        ),
         host=args.host,
         port=args.port,
     )

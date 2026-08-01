@@ -63,14 +63,17 @@ class MazeSimEngine:
     cell_size_m = 0.45
 
     def __init__(self) -> None:
+        self.params: dict[str, Any] = {}
+        self.param_version = 1
+        self._reset_state()
+
+    def _reset_state(self) -> None:
         self.cell: Cell = (0, 4)
         self.heading_index = 0
         self.state = "IDLE"
         self.estopped = False
         self.enc_left = 0
         self.enc_right = 0
-        self.param_version = 1
-        self.params: dict[str, Any] = {}
         self.pending: PendingAction | None = None
         self.last_now_ms = 0
         self.last_telemetry_ms = -100
@@ -101,6 +104,27 @@ class MazeSimEngine:
             self.params.update(dict(params))
             self.param_version += 1
             return [self._ack(seq)]
+        if message_type == "reset":
+            self._reset_state()
+            return [self._ack(seq), self.telemetry_message()]
+        if message_type == "start":
+            if self.estopped:
+                return [
+                    self._ack(
+                        seq,
+                        ok=False,
+                        message="simulation is in ESTOP",
+                    )
+                ]
+            self.state = "IDLE"
+            return [self._ack(seq), self.telemetry_message()]
+        if message_type == "pause":
+            cancelled = self._cancel_pending(
+                "PAUSED",
+                "pause command",
+            )
+            self.state = "PAUSED"
+            return [self._ack(seq), *cancelled, self.telemetry_message()]
         if message_type == "stop":
             cancelled = self._cancel_pending("STOPPED", "stop command")
             self.state = "IDLE"
@@ -110,6 +134,10 @@ class MazeSimEngine:
             self.estopped = True
             self.state = "ESTOP"
             return [self._ack(seq), *cancelled, self.telemetry_message()]
+        if message_type == "clear_estop":
+            self.estopped = False
+            self.state = "IDLE"
+            return [self._ack(seq), self.telemetry_message()]
         if message_type == "action":
             return self._start_action(message, seq=seq, now_ms=now_ms)
         return [self._ack(seq, ok=False, message=f"unsupported message type: {message_type or 'missing'}")]
@@ -196,6 +224,8 @@ class MazeSimEngine:
             return [self._ack(seq, ok=False, message=f"unsupported action: {name}")]
         if self.estopped:
             return [self._ack(seq, ok=False, message="simulation is in ESTOP")]
+        if self.state == "PAUSED":
+            return [self._ack(seq, ok=False, message="simulation is paused")]
         if self.pending is not None:
             return [self._ack(seq, ok=False, message="another action is active")]
 

@@ -227,12 +227,14 @@ class DeviceSession:
 
     def wait_ready(self, *, timeout_s: Optional[float] = None) -> Message:
         with self._lock:
+            self._raise_if_failed_locked()
             if self._ready is not None:
                 return dict(self._ready)
         return self._wait_for_type("ready", timeout_s=timeout_s)
 
     def wait_telemetry(self, *, timeout_s: Optional[float] = None) -> Message:
         with self._lock:
+            self._raise_if_failed_locked()
             if self._last_telemetry is not None:
                 return dict(self._last_telemetry)
         return self._wait_for_type("telemetry", timeout_s=timeout_s)

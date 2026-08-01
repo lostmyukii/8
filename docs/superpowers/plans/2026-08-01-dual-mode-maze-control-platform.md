@@ -301,10 +301,13 @@ refactor: centralize device session ownership
 - Create: `rdk_maze_tuner/tests/test_task_state.py`
 - Create: `rdk_maze_tuner/tests/test_task_orchestrator.py`
 - Modify: `rdk_maze_tuner/core/maze_runner.py`
+- Modify: `rdk_maze_tuner/core/device_session.py`
 - Modify: `rdk_maze_tuner/dashboard/app.py`
 - Modify: `rdk_maze_tuner/dashboard/state.py`
+- Modify: `rdk_maze_tuner/platform/modes/simulation.py`
+- Modify: `simulation/webots/maze_car/controllers/maze_sim_controller/sim_engine.py`
 
-- [ ] **4.1 写状态转换失败测试**
+- [x] **4.1 写状态转换失败测试**
 
 覆盖：
 
@@ -315,7 +318,7 @@ refactor: centralize device session ownership
 - LOST/ESTOP 不允许自动续跑。
 - reset 创建新 run，不重用旧 run ID。
 
-- [ ] **4.2 使 `MazeRunner` 支持可取消逐步运行**
+- [x] **4.2 使 `MazeRunner` 支持可取消逐步运行**
 
 新增：
 
@@ -324,7 +327,7 @@ refactor: centralize device session ownership
 - planner 返回 stop 时区分“任务完成”“无路可走”。
 - goal 条件由任务配置明确传入。
 
-- [ ] **4.3 实现 Task API**
+- [x] **4.3 实现 Task API**
 
 ```text
 POST /api/tasks
@@ -336,7 +339,7 @@ POST /api/tasks/{id}/stop
 POST /api/tasks/{id}/estop
 ```
 
-- [ ] **4.4 仿真闭环测试**
+- [x] **4.4 仿真闭环测试**
 
 使用 fake `ModeAdapter` 和当前 SimEngine 验证点击 start 后自动执行直到完成，并生成事件。
 
@@ -347,11 +350,22 @@ POST /api/tasks/{id}/estop
   rdk_maze_tuner/tests/test_maze_runner.py -q
 ```
 
-- [ ] **4.5 提交检查点**
+- [x] **4.5 提交检查点**
 
 ```text
 feat: orchestrate safe maze tasks
 ```
+
+**Task 4 实施记录（2026-08-01）：**
+
+- 初始 RED：`task_state`、`task_orchestrator` 尚不存在，新增测试在收集阶段失败；API 集成 RED 为 `create_app()` 尚不接受任务编排器。
+- 状态机覆盖正常完成、暂停边界、LOST/ERROR/ESTOP 手工恢复、模式切换限制和 reset 新 run ID；同一时刻只允许一个任务占有运动命令权。
+- `MazeRunner` 在读取 transport 和发送动作前检查 pause/stop，逐步产生结构化事件，并显式区分 `goal_reached`、`exhausted`、`paused` 和 `stopped`。
+- Task API 已接入 Argon2 会话、CSRF 和控制权租约；急停仍允许任一已登录观看者触发。
+- 旧 Dashboard 的全局 stop/estop 会路由到当前自动任务；任务占有运动命令权时，旧手动 action 返回 409，避免两条运动控制链并发。
+- fake 适配器和真实 TCP SimEngine 闭环均验证 start 到 COMPLETED；停止后的迟到 step 结果不会再修改已结束 run。
+- Task 4 目标测试：23 passed；完整 Python 回归：106 passed。
+- `compileall`、`uv pip check` 和 ESP32 PlatformIO 构建通过；本任务未连接、烧录或驱动真实小车，真实硬件状态机仍需按既定顺序验收。
 
 ### Task 5：主控制台界面 V2
 

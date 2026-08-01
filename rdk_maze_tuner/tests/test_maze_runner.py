@@ -149,3 +149,108 @@ def test_runner_optionally_analyzes_and_auto_tunes_after_done():
     assert step.tune_event is not None
     assert step.tune_event["source"] == "auto_tune"
     assert params.param_version >= 1
+
+
+class PauseBeforeStep:
+    def pause_requested(self):
+        return True
+
+    def stop_requested(self):
+        return False
+
+
+class MustNotReadClient:
+    def wait_telemetry(self):
+        raise AssertionError("transport must not be read after pause request")
+
+
+def test_runner_checks_pause_token_before_reading_transport():
+    params = ParamManager(
+        params_path=__import__("pathlib").Path(PARAMS),
+        limits_path=__import__("pathlib").Path(LIMITS),
+    )
+    runner = MazeRunner(
+        client=MustNotReadClient(),
+        params=params,
+        maze=MazeMap(wall_threshold_mm=params.get("tof.wall_threshold_mm")),
+        planner=MazePlanner(),
+    )
+
+    result = runner.run_step(
+        control=PauseBeforeStep(),
+        goal=lambda _maze, _telemetry: False,
+        event_sink=lambda _event: None,
+    )
+
+    assert result.outcome == "paused"
+    assert result.action.name == "pause"
+
+
+def test_runner_reports_goal_and_structured_step_events():
+    fake = DynamicFakeSerial(
+        [
+            {
+                "type": "telemetry",
+                "state": "IDLE",
+                "front_mm": 300,
+                "left_mm": 90,
+                "right_mm": 90,
+            },
+        ]
+    )
+    params = ParamManager(
+        params_path=__import__("pathlib").Path(PARAMS),
+        limits_path=__import__("pathlib").Path(LIMITS),
+    )
+    runner = MazeRunner(
+        client=SerialClient(fake, timeout_s=0.01),
+        params=params,
+        maze=MazeMap(wall_threshold_mm=params.get("tof.wall_threshold_mm")),
+        planner=MazePlanner(),
+    )
+    events = []
+
+    result = runner.run_step(
+        goal=lambda maze, _telemetry: maze.position == (0, 0),
+        event_sink=events.append,
+    )
+
+    assert result.outcome == "goal_reached"
+    assert sent_messages(fake) == []
+    assert [event["type"] for event in events] == [
+        "step.started",
+        "telemetry",
+        "maze_update",
+        "step.goal_reached",
+    ]
+
+
+def test_runner_reports_exhausted_separately_from_goal():
+    fake = DynamicFakeSerial(
+        [
+            {
+                "type": "telemetry",
+                "state": "IDLE",
+                "front_mm": 90,
+                "left_mm": 90,
+                "right_mm": 90,
+            },
+        ]
+    )
+    params = ParamManager(
+        params_path=__import__("pathlib").Path(PARAMS),
+        limits_path=__import__("pathlib").Path(LIMITS),
+    )
+    runner = MazeRunner(
+        client=SerialClient(fake, timeout_s=0.01),
+        params=params,
+        maze=MazeMap(wall_threshold_mm=params.get("tof.wall_threshold_mm")),
+        planner=MazePlanner(),
+    )
+
+    result = runner.run_step(
+        goal=lambda _maze, _telemetry: False,
+        event_sink=lambda _event: None,
+    )
+
+    assert result.outcome == "exhausted"

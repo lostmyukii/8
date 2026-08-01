@@ -208,3 +208,21 @@ def test_disconnect_fails_all_pending_waiters_with_explicit_error():
         assert session.connected is False
     finally:
         session.close()
+
+
+def test_cached_ready_is_not_reused_after_disconnect():
+    stream = InteractiveSerial()
+    session = DeviceSession(SerialClient(stream, timeout_s=0.5))
+    session.start()
+    stream.feed({"type": "ready", "fw": "maze-esp32"})
+    assert session.wait_ready(timeout_s=0.5)["fw"] == "maze-esp32"
+    stream.disconnect()
+    deadline = time.monotonic() + 0.5
+    while session.connected and time.monotonic() < deadline:
+        time.sleep(0.001)
+
+    try:
+        with pytest.raises(DeviceDisconnectedError):
+            session.wait_ready(timeout_s=0.01)
+    finally:
+        session.close()

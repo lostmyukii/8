@@ -103,6 +103,12 @@ class SimulationModeAdapter(ModeAdapter):
         if self._session is not None:
             self._session.close()
 
+    @property
+    def session(self) -> DeviceSession:
+        if self._session is None:
+            raise RuntimeError("simulation preflight has not opened a session")
+        return self._session
+
     def _get_session(self) -> DeviceSession:
         if self._session is None:
             self._session = self._session_factory(self.endpoint)

@@ -156,6 +156,30 @@ def test_straight_control_uses_encoder_difference_and_imu_heading():
     assert output.telemetry["heading_error_deg"] < 0
 
 
+def test_velocity_control_keeps_dead_zone_feedforward_at_setpoint():
+    control = controller()
+    control.start(
+        ActionRequest("feedforward", "move_cell", 200, 0.5),
+        sample=sample(ts_ms=0),
+        now_ms=0,
+    )
+    control.tick(sample=sample(ts_ms=8), now_ms=8)
+
+    output = control.tick(
+        sample=sample(
+            ts_ms=16,
+            enc_left=20,
+            enc_right=20,
+            left_speed=10.0,
+            right_speed=10.0,
+        ),
+        now_ms=16,
+    )
+
+    assert output.pwm_left > 0.18
+    assert output.pwm_right > 0.18
+
+
 @pytest.mark.parametrize(
     ("name", "left_sign", "right_sign"),
     [
@@ -177,6 +201,100 @@ def test_turns_command_opposite_wheel_velocities(name, left_sign, right_sign):
     assert output.target_velocity_left_rad_s * left_sign > 0
     assert output.target_velocity_right_rad_s * right_sign > 0
     assert output.event is None
+
+
+def test_turn_uses_heading_for_slowdown_after_encoder_target_is_reached():
+    control = controller()
+    control.start(
+        ActionRequest("turn-heading", "turn_left", 100, 0.5),
+        sample=sample(ts_ms=0, yaw_deg=0.0),
+        now_ms=0,
+    )
+
+    output = control.tick(
+        sample=sample(
+            ts_ms=8,
+            enc_left=-100,
+            enc_right=100,
+            yaw_deg=330.0,
+        ),
+        now_ms=8,
+    )
+
+    assert output.state == "TURNING_LEFT"
+    assert abs(output.target_velocity_left_rad_s) > 4.0
+    assert abs(output.target_velocity_right_rad_s) > 4.0
+
+
+def test_turn_can_settle_from_heading_after_minimum_encoder_progress():
+    control = controller()
+    control.start(
+        ActionRequest("turn-settle", "turn_left", 100, 0.5),
+        sample=sample(ts_ms=0, yaw_deg=0.0),
+        now_ms=0,
+    )
+
+    settling = control.tick(
+        sample=sample(
+            ts_ms=8,
+            enc_left=-60,
+            enc_right=60,
+            yaw_deg=270.0,
+        ),
+        now_ms=8,
+    )
+
+    assert settling.state == "SETTLING"
+
+
+def test_zero_turn_target_derives_ticks_from_profile_geometry():
+    control = controller()
+    control.start(
+        ActionRequest("turn-derived", "turn_left", 0, 0.5),
+        sample=sample(ts_ms=0, yaw_deg=0.0),
+        now_ms=0,
+    )
+    expected = round(0.135 / (8.0 * 0.0325) * 1103)
+    ticks = int(expected * 0.6)
+    control.tick(
+        sample=sample(
+            ts_ms=8,
+            enc_left=-ticks,
+            enc_right=ticks,
+            yaw_deg=270.0,
+        ),
+        now_ms=8,
+    )
+    control.tick(
+        sample=sample(
+            ts_ms=16,
+            enc_left=-ticks,
+            enc_right=ticks,
+            yaw_deg=270.0,
+        ),
+        now_ms=16,
+    )
+    control.tick(
+        sample=sample(
+            ts_ms=24,
+            enc_left=-ticks,
+            enc_right=ticks,
+            yaw_deg=270.0,
+        ),
+        now_ms=24,
+    )
+    finished = control.tick(
+        sample=sample(
+            ts_ms=32,
+            enc_left=-ticks,
+            enc_right=ticks,
+            yaw_deg=270.0,
+        ),
+        now_ms=32,
+    )
+
+    assert finished.event["type"] == "done"
+    assert finished.event["target_ticks"] == expected
 
 
 def test_remaining_ticks_drive_slowdown_and_active_action_cannot_be_overwritten():

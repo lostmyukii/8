@@ -22,6 +22,10 @@ PROTO PhysicalMazeCar [
   ]
   field SFFloat maxWheelVelocity 20
   field SFFloat maxWheelTorque 0.18
+  field MFVec3f tofLookupTable [
+    0.03 0.03 0
+    2 2 0
+  ]
   field SFString leftContactMaterial "maze_tire_left"
   field SFString rightContactMaterial "maze_tire_right"
   field SFString casterContactMaterial "maze_caster"
@@ -124,7 +128,7 @@ PROTO PhysicalMazeCar [
       HingeJoint {
         jointParameters HingeJointParameters {
           position 0
-          axis 1 0 0
+          axis -1 0 0
           anchor %<= -halfTrack >% %<= wheelRadius >% 0.018
           dampingConstant 0.0008
           staticFriction 0.0004
@@ -167,6 +171,23 @@ PROTO PhysicalMazeCar [
                 subdivision 20
               }
             }
+            # A high-contrast tread mark rotates with the wheel, making
+            # physical motion directly observable in the live stream.
+            Transform {
+              translation 0 0 %<= wheelRadius + 0.001 >%
+              children [
+                Shape {
+                  appearance DEF WHEEL_MOTION_MARKER PBRAppearance {
+                    baseColor 0.95 0.12 0.08
+                    roughness 0.35
+                    emissiveColor 0.12 0.01 0.005
+                  }
+                  geometry Box {
+                    size 0.009 %<= wheelWidth + 0.002 >% 0.003
+                  }
+                }
+              ]
+            }
           ]
           name "left drive wheel"
           contactMaterial IS leftContactMaterial
@@ -184,7 +205,7 @@ PROTO PhysicalMazeCar [
       HingeJoint {
         jointParameters HingeJointParameters {
           position 0
-          axis 1 0 0
+          axis -1 0 0
           anchor %<= halfTrack >% %<= wheelRadius >% 0.018
           dampingConstant 0.0008
           staticFriction 0.0004
@@ -223,6 +244,17 @@ PROTO PhysicalMazeCar [
                 subdivision 20
               }
             }
+            Transform {
+              translation 0 0 %<= wheelRadius + 0.001 >%
+              children [
+                Shape {
+                  appearance USE WHEEL_MOTION_MARKER
+                  geometry Box {
+                    size 0.009 %<= wheelWidth + 0.002 >% 0.003
+                  }
+                }
+              ]
+            }
           ]
           name "right drive wheel"
           contactMaterial IS rightContactMaterial
@@ -257,6 +289,22 @@ PROTO PhysicalMazeCar [
                 subdivision 2
               }
             }
+            Transform {
+              translation 0 0.009 -0.009
+              children [
+                Shape {
+                  appearance PBRAppearance {
+                    baseColor 0.04 0.82 0.95
+                    roughness 0.3
+                    emissiveColor 0.005 0.08 0.1
+                  }
+                  geometry Sphere {
+                    radius 0.0035
+                    subdivision 2
+                  }
+                }
+              ]
+            }
           ]
           name "passive caster"
           contactMaterial IS casterContactMaterial
@@ -278,10 +326,7 @@ PROTO PhysicalMazeCar [
         numberOfRays 1
         aperture 0.436332
         resolution 0.001
-        lookupTable [
-          0.03 0.03 0.005
-          2 2 0.005
-        ]
+        lookupTable IS tofLookupTable
       }
       DistanceSensor {
         translation -0.081 0.072 -0.01
@@ -291,10 +336,7 @@ PROTO PhysicalMazeCar [
         numberOfRays 1
         aperture 0.436332
         resolution 0.001
-        lookupTable [
-          0.03 0.03 0.005
-          2 2 0.005
-        ]
+        lookupTable IS tofLookupTable
       }
       DistanceSensor {
         translation 0.081 0.072 -0.01
@@ -303,10 +345,7 @@ PROTO PhysicalMazeCar [
         numberOfRays 1
         aperture 0.436332
         resolution 0.001
-        lookupTable [
-          0.03 0.03 0.005
-          2 2 0.005
-        ]
+        lookupTable IS tofLookupTable
       }
       InertialUnit {
         translation 0 0.11 0.012

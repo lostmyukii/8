@@ -185,6 +185,30 @@ def test_tof_noise_and_dropout_are_repeatable_with_fixed_seed():
         "tof_front_dropout" in sample.quality_flags
         for sample in left_samples
     )
+    assert "tof_noise_enabled" in left_samples[0].quality_flags
+    assert "tof_dropout_enabled" in left_samples[0].quality_flags
+
+
+def test_ideal_sensor_mode_disables_adapter_noise_and_dropout():
+    fake_devices = devices()
+    adapter = PhysicalDeviceAdapter(
+        FakeRobot(fake_devices),
+        profile(noise_std_mm=40.0, dropout_rate=1.0),
+        sensor_noise_enabled=False,
+        sensor_dropout_enabled=False,
+    )
+
+    first = adapter.sample(timestamp_ms=0)
+    second = adapter.sample(timestamp_ms=8)
+
+    assert first.front_mm == 250.0
+    assert second.front_mm == 250.0
+    assert "tof_noise_enabled" not in first.quality_flags
+    assert "tof_dropout_enabled" not in first.quality_flags
+    assert not any(
+        flag.endswith("_dropout")
+        for flag in first.quality_flags
+    )
 
 
 def test_non_finite_imu_stops_motors_and_raises_physics_error():
@@ -198,6 +222,38 @@ def test_non_finite_imu_stops_motors_and_raises_physics_error():
     assert captured.value.code == "SIM_PHYSICS_ERROR"
     assert fake_devices["left wheel motor"].velocities[-1] == 0.0
     assert fake_devices["right wheel motor"].velocities[-1] == 0.0
+
+
+def test_imu_heading_uses_navigation_clockwise_sign_convention():
+    fake_devices = devices()
+    fake_devices["imu"].values = (
+        0.0,
+        0.0,
+        math.radians(30.0),
+    )
+    fake_devices["gyro"].values = (
+        0.0,
+        math.radians(10.0),
+        0.0,
+    )
+    configured_profile = profile()
+    configured_profile = replace(
+        configured_profile,
+        imu=replace(
+            configured_profile.imu,
+            yaw_noise_std_deg=0.0,
+            gyro_noise_std_dps=0.0,
+        ),
+    )
+    adapter = PhysicalDeviceAdapter(
+        FakeRobot(fake_devices),
+        configured_profile,
+    )
+
+    sample = adapter.sample(timestamp_ms=8)
+
+    assert sample.imu_yaw_deg == pytest.approx(330.0)
+    assert sample.yaw_rate_dps == pytest.approx(-10.0)
 
 
 def test_motor_commands_are_finite_and_clamped_to_profile_limits():

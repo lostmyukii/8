@@ -14,6 +14,7 @@ WorldInfo {
       material2 "maze_tire_left"
       coulombFriction [
         0.9
+        0.12
       ]
       softERP 0.2
       softCFM 0.0001
@@ -23,6 +24,27 @@ WorldInfo {
       material2 "maze_tire_right"
       coulombFriction [
         0.9
+        0.12
+      ]
+      softERP 0.2
+      softCFM 0.0001
+    }
+    ContactProperties {
+      material1 "maze_floor_normal"
+      material2 "maze_tire_left_low"
+      coulombFriction [
+        0.25
+        0.05
+      ]
+      softERP 0.2
+      softCFM 0.0001
+    }
+    ContactProperties {
+      material1 "maze_floor_normal"
+      material2 "maze_tire_right_low"
+      coulombFriction [
+        0.25
+        0.05
       ]
       softERP 0.2
       softCFM 0.0001
@@ -39,8 +61,10 @@ WorldInfo {
   ]
 }
 Viewpoint {
-  orientation -0.436 0.873 0.218 1.42
-  position 1.05 1.15 1.05
+  orientation 0 0 1 -0.5
+  position -2.2 1.2 0
+  follow "physical_maze_car"
+  followType "Pan and Tilt Shot"
   fieldOfView 0.78
 }
 Background {
@@ -104,14 +128,15 @@ Solid {
   ]
   name "90 degree turn marker"
 }
+DEF MAZE_WALLS Group {
+  children [
+  ]
+}
 PhysicalMazeCar {
   translation 0 0 0
   controller "maze_physical_controller"
   controllerArgs [
     "--world=calibration"
-    "--p1-stability"
-    "--p1-duration=10"
-    "--p1-report=/tmp/maze-p1-stability.json"
   ]
   supervisor TRUE
 }

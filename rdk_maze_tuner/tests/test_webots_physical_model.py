@@ -59,6 +59,10 @@ def test_physical_proto_has_exact_active_wheel_and_sensor_contract():
     assert 'name "imu"' in text
     assert 'name "gyro"' in text
     assert 'name "accelerometer"' in text
+    assert "field MFVec3f tofLookupTable" in text
+    assert text.count("lookupTable IS tofLookupTable") == 3
+    assert "0.03 0.03 0" in text
+    assert "2 2 0" in text
 
 
 def test_physical_proto_has_rigid_bodies_collision_and_passive_caster():
@@ -68,6 +72,9 @@ def test_physical_proto_has_rigid_bodies_collision_and_passive_caster():
     assert len(re.findall(r"\bPhysics\s*\{", text)) >= 4
     assert len(re.findall(r"\bBallJoint\s*\{", text)) == 1
     assert 'name "passive caster"' in text
+    assert "DEF WHEEL_MOTION_MARKER PBRAppearance" in text
+    assert "appearance USE WHEEL_MOTION_MARKER" in text
+    assert "baseColor 0.04 0.82 0.95" in text
     assert 'field SFString leftContactMaterial "maze_tire_left"' in text
     assert 'field SFString rightContactMaterial "maze_tire_right"' in text
     assert "contactMaterial IS leftContactMaterial" in text
@@ -88,6 +95,18 @@ def test_physical_worlds_use_eight_ms_step_and_real_collision_surfaces():
         assert 'material1 "maze_floor_normal"' in text
         assert 'material2 "maze_tire_left"' in text
         assert 'material2 "maze_tire_right"' in text
+        assert 'material2 "maze_tire_left_low"' in text
+        assert 'material2 "maze_tire_right_low"' in text
+        assert re.search(
+            r'material2 "maze_tire_left"\s+'
+            r"coulombFriction\s+\[\s*0\.9\s+0\.12\s*\]",
+            text,
+        )
+        assert re.search(
+            r'material2 "maze_tire_left_low"\s+'
+            r"coulombFriction\s+\[\s*0\.25\s+0\.05\s*\]",
+            text,
+        )
         assert 'contactMaterial "maze_floor_normal"' in text
         assert "boundingObject Box" in text
         assert "PhysicalMazeCar {" in text
@@ -96,8 +115,19 @@ def test_physical_worlds_use_eight_ms_step_and_real_collision_surfaces():
     calibration = _read(CALIBRATION_WORLD)
     assert 'name "250 mm calibration marker"' in calibration
     assert 'name "90 degree turn marker"' in calibration
+    assert re.search(
+        r"Viewpoint\s*\{\s*orientation 0 0 1 -0\.5\s*"
+        r"position -2\.2 1\.2 0\s+follow \"physical_maze_car\"\s+"
+        r'followType "Pan and Tilt Shot"',
+        calibration,
+    )
 
     maze = _read(MAZE_WORLD)
+    assert re.search(
+        r"Viewpoint\s*\{\s*orientation 0 0 1 -1\.5708\s*"
+        r"position 0 3\.9 0\.15",
+        maze,
+    )
     assert "DEF MAZE_WALLS Group" in maze
     assert "DEF LOW_FRICTION_PATCH Solid" in maze
     assert 'contactMaterial "maze_floor_patch"' in maze

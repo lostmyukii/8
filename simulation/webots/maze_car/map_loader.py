@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from rdk_maze_tuner.core.maze_definition import MapDefinition, WallSegment
+from rdk_maze_tuner.core.maze_validation import validate_map_definition
 
 
 Cell = tuple[int, int]
@@ -70,6 +71,54 @@ class WebotsMapLoader:
         for node in compiled.wall_nodes:
             self.children.importMFNodeFromString(-1, node)
         return compiled
+
+
+def default_map_definition() -> MapDefinition:
+    """Return the digest-backed open 5x5 map shared by both simulators."""
+
+    return validate_map_definition(
+        {
+            "rows": 5,
+            "cols": 5,
+            "cell_width_mm": 450,
+            "cell_height_mm": 450,
+            "wall_thickness_mm": 40,
+            "wall_height_mm": 180,
+            "start": {"x": 0, "y": 4, "heading": "N"},
+            "goals": [{"x": 4, "y": 0}],
+            "walls": [
+                {"x1": 0, "y1": 0, "x2": 5, "y2": 0},
+                {"x1": 5, "y1": 0, "x2": 5, "y2": 5},
+                {"x1": 5, "y1": 5, "x2": 0, "y2": 5},
+                {"x1": 0, "y1": 5, "x2": 0, "y2": 0},
+            ],
+            "source_image_digest": None,
+        }
+    )
+
+
+def calibration_map_definition() -> MapDefinition:
+    """Return a centered 3x3 arena with known wall distances."""
+
+    return validate_map_definition(
+        {
+            "rows": 3,
+            "cols": 3,
+            "cell_width_mm": 450,
+            "cell_height_mm": 450,
+            "wall_thickness_mm": 40,
+            "wall_height_mm": 180,
+            "start": {"x": 1, "y": 1, "heading": "N"},
+            "goals": [{"x": 1, "y": 0}],
+            "walls": [
+                {"x1": 0, "y1": 0, "x2": 3, "y2": 0},
+                {"x1": 3, "y1": 0, "x2": 3, "y2": 3},
+                {"x1": 3, "y1": 3, "x2": 0, "y2": 3},
+                {"x1": 0, "y1": 3, "x2": 0, "y2": 0},
+            ],
+            "source_image_digest": None,
+        }
+    )
 
 
 def _internal_edge(

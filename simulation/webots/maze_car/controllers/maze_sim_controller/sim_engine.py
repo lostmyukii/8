@@ -11,7 +11,11 @@ from rdk_maze_tuner.core.maze_validation import (
     MazeValidationError,
     validate_map_definition,
 )
-from simulation.webots.maze_car.map_loader import CompiledMap, compile_map
+from simulation.webots.maze_car.map_loader import (
+    CompiledMap,
+    compile_map,
+    default_map_definition,
+)
 
 
 HEADINGS = ("N", "E", "S", "W")
@@ -56,7 +60,7 @@ class MazeSimEngine:
     def __init__(self) -> None:
         self.params: dict[str, Any] = {}
         self.param_version = 1
-        self.map_definition = _default_map_definition()
+        self.map_definition = default_map_definition()
         self.compiled_map = compile_map(self.map_definition)
         self.map_version_id = "builtin-open-5x5"
         self.map_digest = self.map_definition.content_digest
@@ -586,30 +590,6 @@ class MazeSimEngine:
             payload["message"] = message
         payload.update(fields)
         return payload
-
-
-def _default_map_definition() -> MapDefinition:
-    """Safe open fallback; production tasks replace it with a saved version."""
-
-    return validate_map_definition(
-        {
-            "rows": 5,
-            "cols": 5,
-            "cell_width_mm": 450,
-            "cell_height_mm": 450,
-            "wall_thickness_mm": 40,
-            "wall_height_mm": 180,
-            "start": {"x": 0, "y": 4, "heading": "N"},
-            "goals": [{"x": 4, "y": 0}],
-            "walls": [
-                {"x1": 0, "y1": 0, "x2": 5, "y2": 0},
-                {"x1": 5, "y1": 0, "x2": 5, "y2": 5},
-                {"x1": 5, "y1": 5, "x2": 0, "y2": 5},
-                {"x1": 0, "y1": 5, "x2": 0, "y2": 0},
-            ],
-            "source_image_digest": None,
-        }
-    )
 
 
 def normalize_navigation_yaw(value: float) -> float:

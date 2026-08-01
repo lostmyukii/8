@@ -34,15 +34,17 @@ class ActionControlConfig:
     settle_speed_rad_s: float = 0.45
     settle_ticks_required: int = 4
     slowdown_ticks: int = 240
+    turn_slowdown_angle_deg: float = 45.0
+    turn_progress_floor_ratio: float = 0.5
     minimum_speed_scale: float = 0.22
     danger_stop_mm: float = 60.0
     action_timeout_ms: int = 8000
     heartbeat_timeout_ms: int = 1200
     stall_timeout_ms: int = 900
     stall_progress_ticks: int = 2
-    wheelspin_timeout_ms: int = 600
-    wheelspin_predicted_mm: float = 25.0
-    wheelspin_external_mm: float = 4.0
+    wheelspin_timeout_ms: int = 1800
+    wheelspin_predicted_mm: float = 120.0
+    wheelspin_external_mm: float = 15.0
     collision_accel_mps2: float = 7.0
     collision_distance_mm: float = 110.0
     collision_speed_rad_s: float = 0.6
@@ -50,7 +52,7 @@ class ActionControlConfig:
     heading_gain: float = 0.03
     pid_kp: float = 0.09
     pid_ki: float = 0.03
-    pid_kd: float = 0.001
+    pid_kd: float = 0.0
     pid_integral_limit: float = 4.0
 
     def __post_init__(self) -> None:
@@ -61,6 +63,7 @@ class ActionControlConfig:
             self.settle_speed_rad_s,
             self.settle_ticks_required,
             self.slowdown_ticks,
+            self.turn_slowdown_angle_deg,
             self.danger_stop_mm,
             self.action_timeout_ms,
             self.heartbeat_timeout_ms,
@@ -79,6 +82,10 @@ class ActionControlConfig:
         if not 0 < self.minimum_speed_scale <= 1:
             raise ValueError(
                 "minimum_speed_scale must be between 0 and 1"
+            )
+        if not 0 < self.turn_progress_floor_ratio <= 1:
+            raise ValueError(
+                "turn_progress_floor_ratio must be between 0 and 1"
             )
 
 
@@ -145,6 +152,11 @@ class PhysicalActionController:
         self._last_progress_ticks = 0.0
         self._last_progress_ms = 0
         self._settled_ticks = 0
+        self._wheelspin_range_motion_mm = 0.0
+
+    @property
+    def active(self) -> bool:
+        return self._active is not None
 
     def reset(self) -> None:
         self._left_pid.reset()
@@ -153,6 +165,7 @@ class PhysicalActionController:
         self.state = "IDLE"
         self._active = None
         self._settled_ticks = 0
+        self._wheelspin_range_motion_mm = 0.0
 
     def heartbeat(self, *, now_ms: int) -> None:
         self._last_heartbeat_ms = int(now_ms)
@@ -174,11 +187,9 @@ class PhysicalActionController:
             raise ActionRejected("action_id is required")
         if not math.isfinite(float(request.speed)) or request.speed <= 0:
             raise ActionRejected("action speed must be finite and positive")
-        target_ticks = (
-            int(request.target_ticks)
-            if int(request.target_ticks) > 0
-            else self.config.default_target_ticks
-        )
+        target_ticks = int(request.target_ticks)
+        if target_ticks <= 0:
+            target_ticks = self._default_target_ticks(request.name)
         self._active = ActionRequest(
             action_id=request.action_id,
             name=request.name,
@@ -189,11 +200,12 @@ class PhysicalActionController:
         self._start_ms = int(now_ms)
         self._start_encoders = (sample.enc_left, sample.enc_right)
         self._start_yaw_deg = sample.imu_yaw_deg
-        self._start_front_mm = sample.front_mm
+        self._start_front_mm = sample.raw_front_mm
         self._last_heartbeat_ms = int(now_ms)
         self._last_progress_ticks = 0.0
         self._last_progress_ms = int(now_ms)
         self._settled_ticks = 0
+        self._wheelspin_range_motion_mm = 0.0
         self._left_pid.reset()
         self._right_pid.reset()
         self._motor_model.reset()
@@ -257,10 +269,10 @@ class PhysicalActionController:
                 now_ms=now,
             )
 
-        if (
-            remaining <= self.config.position_tolerance_ticks
-            and self._angle_converged(heading_error)
-        ):
+        if self._position_converged(
+            progress=progress,
+            remaining=remaining,
+        ) and self._angle_converged(heading_error):
             self.state = "SETTLING"
             self._settled_ticks = 0
             return self._zero_output(
@@ -352,7 +364,10 @@ class PhysicalActionController:
             * 1000.0
             / self.profile.encoder.ticks_per_revolution
         )
-        external_mm = abs(self._start_front_mm - sample.front_mm)
+        external_mm = abs(
+            self._start_front_mm - sample.raw_front_mm
+        )
+        self._wheelspin_range_motion_mm = external_mm
         if (
             self._active.name == "move_cell"
             and predicted_mm >= self.config.wheelspin_predicted_mm
@@ -381,7 +396,10 @@ class PhysicalActionController:
             abs(sample.wheel_speed_right_rad_s),
         ) <= self.config.settle_speed_rad_s
         if (
-            remaining <= self.config.position_tolerance_ticks
+            self._position_converged(
+                progress=progress,
+                remaining=remaining,
+            )
             and self._angle_converged(heading_error)
             and low_speed
         ):
@@ -433,9 +451,17 @@ class PhysicalActionController:
         assert self._active is not None
         speed_fraction = min(1.0, abs(self._active.speed))
         base = speed_fraction * self.profile.motor.max_velocity_rad_s
+        slowdown_ratio = (
+            remaining / self.config.slowdown_ticks
+            if self._active.name == "move_cell"
+            else (
+                abs(heading_error)
+                / self.config.turn_slowdown_angle_deg
+            )
+        )
         scale = max(
             self.config.minimum_speed_scale,
-            min(1.0, remaining / self.config.slowdown_ticks),
+            min(1.0, slowdown_ratio),
         )
         base *= scale
         if self._active.name == "move_cell":
@@ -468,9 +494,21 @@ class PhysicalActionController:
             measurement=sample.wheel_speed_right_rad_s,
             dt_s=dt_s,
         )
+        left_feedforward = self._feedforward_pwm(left_target)
+        right_feedforward = self._feedforward_pwm(right_target)
+        left_pwm = _clamp(
+            left_feedforward + left_pid.output,
+            -1.0,
+            1.0,
+        )
+        right_pwm = _clamp(
+            right_feedforward + right_pid.output,
+            -1.0,
+            1.0,
+        )
         motor = self._motor_model.step(
-            pwm_left=left_pid.output,
-            pwm_right=right_pid.output,
+            pwm_left=left_pwm,
+            pwm_right=right_pwm,
             dt_s=dt_s,
         )
         return self._output(
@@ -482,8 +520,25 @@ class PhysicalActionController:
                 **telemetry,
                 "pid_left": left_pid.output,
                 "pid_right": right_pid.output,
+                "feedforward_left": left_feedforward,
+                "feedforward_right": right_feedforward,
             },
         )
+
+    def _feedforward_pwm(self, target_velocity_rad_s: float) -> float:
+        if abs(target_velocity_rad_s) < 1e-9:
+            return 0.0
+        speed_ratio = min(
+            1.0,
+            abs(target_velocity_rad_s)
+            / self.profile.motor.max_velocity_rad_s,
+        )
+        magnitude = (
+            self.profile.motor.pwm_dead_zone
+            + (1.0 - self.profile.motor.pwm_dead_zone)
+            * speed_ratio
+        )
+        return math.copysign(magnitude, target_velocity_rad_s)
 
     def _complete(
         self,
@@ -596,6 +651,36 @@ class PhysicalActionController:
             return True
         return abs(heading_error) <= self.config.angle_tolerance_deg
 
+    def _position_converged(
+        self,
+        *,
+        progress: float,
+        remaining: float,
+    ) -> bool:
+        if self._active is None:
+            return True
+        if self._active.name == "move_cell":
+            return remaining <= self.config.position_tolerance_ticks
+        return (
+            progress
+            >= self._active.target_ticks
+            * self.config.turn_progress_floor_ratio
+        )
+
+    def _default_target_ticks(self, name: str) -> int:
+        if name == "move_cell":
+            return self.config.default_target_ticks
+        quarter_turn_ticks = round(
+            self.profile.geometry.axle_track_m
+            / (8.0 * self.profile.geometry.wheel_radius_m)
+            * self.profile.encoder.ticks_per_revolution
+        )
+        return (
+            quarter_turn_ticks * 2
+            if name == "turn_back"
+            else quarter_turn_ticks
+        )
+
     def _telemetry(
         self,
         *,
@@ -605,6 +690,12 @@ class PhysicalActionController:
         right_delta: int,
         heading_error: float,
     ) -> dict[str, Any]:
+        predicted_motion_mm = (
+            progress
+            * (2.0 * math.pi * self.profile.geometry.wheel_radius_m)
+            * 1000.0
+            / self.profile.encoder.ticks_per_revolution
+        )
         return {
             "action_id": self._active.action_id if self._active else None,
             "progress_ticks": round(progress, 3),
@@ -612,6 +703,14 @@ class PhysicalActionController:
             "encoder_balance_error_ticks": left_delta - right_delta,
             "heading_error_deg": round(heading_error, 6),
             "settled_ticks": self._settled_ticks,
+            "wheelspin_predicted_mm": round(
+                predicted_motion_mm,
+                3,
+            ),
+            "wheelspin_range_motion_mm": round(
+                self._wheelspin_range_motion_mm,
+                3,
+            ),
         }
 
     def _zero_control(self) -> None:
@@ -661,3 +760,7 @@ class PhysicalActionController:
             event=event,
             telemetry=telemetry,
         )
+
+
+def _clamp(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))

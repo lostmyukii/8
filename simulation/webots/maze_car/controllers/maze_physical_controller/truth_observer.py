@@ -101,8 +101,8 @@ def _truth_slip(
     body_linear_mps: float,
 ) -> float:
     wheel_speed = abs(float(wheel_linear_mps))
-    if wheel_speed < 1e-9:
-        return 0.0 if body_linear_mps < 1e-9 else 1.0
+    if wheel_speed < 0.001:
+        return 0.0 if body_linear_mps < 0.001 else 1.0
     return round(
         max(
             0.0,

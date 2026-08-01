@@ -45,8 +45,17 @@ class PhysicalDeviceAdapter:
     package.
     """
 
-    def __init__(self, robot: Any, profile: PhysicalProfile) -> None:
+    def __init__(
+        self,
+        robot: Any,
+        profile: PhysicalProfile,
+        *,
+        sensor_noise_enabled: bool = True,
+        sensor_dropout_enabled: bool = True,
+    ) -> None:
         self.profile = profile
+        self.sensor_noise_enabled = bool(sensor_noise_enabled)
+        self.sensor_dropout_enabled = bool(sensor_dropout_enabled)
         self._rng = random.Random(profile.random_seed)
         self._devices: dict[str, Any] = {}
         self._last_timestamp_ms: int | None = None
@@ -98,6 +107,13 @@ class PhysicalDeviceAdapter:
         self._encoder_origins = None
         self._tof_filtered.clear()
         self._rng.seed(self.profile.random_seed)
+
+    def apply_profile(self, profile: PhysicalProfile) -> None:
+        """Switch one verified immutable profile at a stopped reset boundary."""
+
+        self.safe_stop()
+        self.profile = profile
+        self.reset()
 
     def safe_stop(self) -> None:
         for name in _MOTOR_NAMES:
@@ -238,6 +254,16 @@ class PhysicalDeviceAdapter:
                 ) / delta_s
 
         quality_flags: set[str] = set()
+        if (
+            self.sensor_noise_enabled
+            and self.profile.tof.noise_std_mm > 0
+        ):
+            quality_flags.add("tof_noise_enabled")
+        if (
+            self.sensor_dropout_enabled
+            and self.profile.tof.dropout_rate > 0
+        ):
+            quality_flags.add("tof_dropout_enabled")
         raw_tof: dict[str, float] = {}
         filtered_tof: dict[str, float] = {}
         for direction, name in _TOF_NAMES.items():
@@ -250,11 +276,11 @@ class PhysicalDeviceAdapter:
             quality_flags.update(flags)
 
         yaw_deg = (
-            math.degrees(imu[2])
+            -math.degrees(imu[2])
             + self._rng.gauss(0.0, self.profile.imu.yaw_noise_std_deg)
         ) % 360.0
         yaw_rate_dps = (
-            math.degrees(gyro[1])
+            -math.degrees(gyro[1])
             + self._rng.gauss(0.0, self.profile.imu.gyro_noise_std_dps)
         )
         accel_forward_mps2 = (
@@ -336,7 +362,10 @@ class PhysicalDeviceAdapter:
             side = "low" if raw_mm < minimum_mm else "high"
             flags.add(f"tof_{direction}_clamped_{side}")
 
-        if self._rng.random() < self.profile.tof.dropout_rate:
+        if (
+            self.sensor_dropout_enabled
+            and self._rng.random() < self.profile.tof.dropout_rate
+        ):
             flags.add(f"tof_{direction}_dropout")
             filtered = self._tof_filtered.get(direction, maximum_mm)
             self._tof_filtered[direction] = filtered
@@ -346,10 +375,12 @@ class PhysicalDeviceAdapter:
                 flags,
             )
 
-        noisy = bounded + self._rng.gauss(
-            0.0,
-            self.profile.tof.noise_std_mm,
+        noise_std_mm = (
+            self.profile.tof.noise_std_mm
+            if self.sensor_noise_enabled
+            else 0.0
         )
+        noisy = bounded + self._rng.gauss(0.0, noise_std_mm)
         noisy = _clamp(noisy, minimum_mm, maximum_mm)
         previous = self._tof_filtered.get(direction)
         if previous is None:

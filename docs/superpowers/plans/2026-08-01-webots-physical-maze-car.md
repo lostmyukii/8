@@ -642,7 +642,7 @@ Task 5 实施记录（2026-08-01）：
 - Modify: `simulation/webots/maze_car/map_loader.py`
 - Modify: `rdk_maze_tuner/tests/test_webots_map_loader.py`
 
-- [ ] **6.1 写物理协议引擎失败测试**
+- [x] **6.1 写物理协议引擎失败测试**
 
 用 fake device/world/truth 端到端覆盖：
 
@@ -657,7 +657,7 @@ Task 5 实施记录（2026-08-01）：
 - 客户端断开或心跳超时由引擎本地停车。
 - `close()` 归零两个电机。
 
-- [ ] **6.2 写禁止 teleport 的合同测试**
+- [x] **6.2 写禁止 teleport 的合同测试**
 
 物理主循环：
 
@@ -667,7 +667,7 @@ Task 5 实施记录（2026-08-01）：
 - 普通 action/tick 不持有 translation/rotation field。
 - 地图重建和物理 profile 应用只在无活动动作的 reset 边界发生。
 
-- [ ] **6.3 实现物理 world 配置器**
+- [x] **6.3 实现物理 world 配置器**
 
 负责：
 
@@ -678,7 +678,7 @@ Task 5 实施记录（2026-08-01）：
 - 检查车辆与地面/墙体没有初始穿插。
 - 重置物理并等待若干 settling step。
 
-- [ ] **6.4 实现 `PhysicalMazeEngine`**
+- [x] **6.4 实现 `PhysicalMazeEngine`**
 
 复用 Task 2 的协议合同和 Task 5 的控制内核。普通 telemetry 加入：
 
@@ -694,7 +694,7 @@ sim_truth
 
 `sim_truth` 在组装消息时由独立 `TruthObserver` 追加；控制器对象不得收到该值。
 
-- [ ] **6.5 在服务器执行 P2/P3 初验**
+- [x] **6.5 在服务器执行 P2/P3 初验**
 
 先运行：
 
@@ -706,9 +706,9 @@ sim_truth
 
 此 Task 可以暂时未达到最终误差阈值，但不得再通过 teleport 移动。
 
-- [ ] **6.6 运行目标测试和完整回归**
+- [x] **6.6 运行目标测试和完整回归**
 
-- [ ] **6.7 完成 P2 物理测距验收**
+- [x] **6.7 完成 P2 物理测距验收**
 
 在已知几何距离的平面墙前分别验证前、左、右 ToF：
 
@@ -720,11 +720,40 @@ sim_truth
 同时用 desktop/stream 画面确认两侧车轮可见旋转、万向轮随动，
 并保存与结构化传感器证据同一 run 的画面。
 
-- [ ] **6.8 提交检查点**
+- [x] **6.8 提交检查点**
 
 ```text
 feat: run maze actions through Webots physics
 ```
+
+Task 6 实施记录（2026-08-01）：
+
+- RED：物理引擎、world 配置器和主循环合同测试最初因目标模块不存在、
+  protocol server 仍未接入真实 Webots device 而失败。
+- `PhysicalMazeEngine` 现在执行一行一个 JSON 的 reset/start/action/
+  stop/estop 协议，动作立即 ACK，后续由 8 ms 物理 tick 产生匹配
+  `action_id` 的 done/error；telemetry 约 20 Hz。
+- 普通动作只写左右轮电机，只有 `PhysicalWorldConfigurator.reset_pose()`
+  持有 translation/rotation field 并调用 `resetPhysics()`；真值观察器只在
+  telemetry 组装阶段追加 `sim_truth`。
+- 服务器 P2 ideal/noise-off 三向 ToF 实测为
+  front=536 mm、left=574 mm、right=574 mm，与已知几何值误差均为
+  0 mm；noise-on 带 `tof_noise_enabled`、`tof_dropout_enabled` 和实际
+  dropout 方向标记。
+- 固定 seed 两次 reset 后的 16 帧原始序列完全一致，SHA-256 均为
+  `4b511dba...6b3f`；dropout 没有伪装成无标记的近距离有效值。
+- 服务器 P3 初验由真实轮地接触产生：250 mm 动作返回 done（1416 ms，
+  左/右编码器 1336/1343）；左右 90 度动作均返回 done，初始角误差分别
+  5.72 度和 4.18 度，留待 Task 8 标定到最终阈值。
+- stop 返回同一 action 的 `STOPPED`，estop 返回同一 action 的 `ESTOP`，
+  且只有显式 `clear_estop` 后重新解锁。
+- 修正 Webots NUE 视点后，W3D 浏览器流已真实显示小车、三面碰撞墙、
+  标定线、两侧驱动轮与被动万向轮；同一动作 run 的前/中/后画面保存在
+  `.local/acceptance/p2-physical-{before,motion-1,after}.png`。轮上红色
+  高对比标记与万向轮青色标记随各自刚体运动，画面变化与编码器证据一致。
+- 目标测试：45 passed。
+- 完整 Python 回归：242 passed；`compileall` 通过。
+- ESP32 PlatformIO 构建通过：RAM 6.9%，Flash 24.2%。
 
 ---
 

@@ -92,8 +92,17 @@
 
             <div id="liveViewport" class="live-viewport">
               <div id="streamFrame" class="stream-frame" data-mode="simulation" role="img" aria-label="Webots 或真实小车实时画面">
+                <iframe
+                  id="simulationViewer"
+                  class="simulation-viewer"
+                  src="about:blank"
+                  data-src="/simulation-viewer"
+                  title="Webots 实时物理仿真"
+                  sandbox="allow-scripts allow-same-origin"
+                  allow="fullscreen"
+                ></iframe>
                 <div class="stream-grid" aria-hidden="true"></div>
-                <div class="stream-placeholder">
+                <div id="streamPlaceholder" class="stream-placeholder">
                   <span class="vehicle-glyph" aria-hidden="true">
                     <i></i><i></i><i></i>
                   </span>

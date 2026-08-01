@@ -274,6 +274,15 @@ def create_app(
     def index() -> HTMLResponse:
         return HTMLResponse((TEMPLATE_DIR / "index.html").read_text(encoding="utf-8"))
 
+    @app.get("/simulation-viewer", response_class=HTMLResponse)
+    def simulation_viewer(request: Request) -> HTMLResponse:
+        auth_context.require_principal(request)
+        return HTMLResponse(
+            (TEMPLATE_DIR / "simulation_viewer.html").read_text(
+                encoding="utf-8"
+            )
+        )
+
     @app.get("/api/health")
     def api_health() -> dict[str, Any]:
         return {

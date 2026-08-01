@@ -24,6 +24,10 @@ import {
   initializeRunReplay,
   updateReplayTask,
 } from "./replay.js";
+import {
+  initializeLiveStream,
+  updateLiveStream,
+} from "./stream.js";
 
 let socket = null;
 let reconnectTimer = null;
@@ -39,6 +43,7 @@ function scheduleRender(appState) {
       lastRenderAt = performance.now();
       const current = getAppState();
       renderDashboard(current);
+      updateLiveStream(current);
       if (current.authenticated) {
         updateReplayTask(current.activeTask);
       }
@@ -110,6 +115,7 @@ bindControls({
 });
 initializeMazeEditor();
 initializeRunReplay();
+initializeLiveStream();
 
 async function bootstrap() {
   try {

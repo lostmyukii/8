@@ -16,6 +16,7 @@ class DashboardContractParser(HTMLParser):
         super().__init__()
         self.ids: set[str] = set()
         self.scripts: list[dict[str, str]] = []
+        self.elements: dict[str, tuple[str, dict[str, str]]] = {}
         self.labels_for: set[str] = set()
         self.aria_live_ids: set[str] = set()
 
@@ -24,6 +25,7 @@ class DashboardContractParser(HTMLParser):
         element_id = attributes.get("id")
         if element_id:
             self.ids.add(element_id)
+            self.elements[element_id] = (tag, attributes)
             if attributes.get("aria-live"):
                 self.aria_live_ids.add(element_id)
         if tag == "script":
@@ -57,6 +59,8 @@ def test_dashboard_v2_has_complete_mission_control_dom_contract(tmp_path):
         "estopButton",
         "liveViewport",
         "streamFrame",
+        "simulationViewer",
+        "streamPlaceholder",
         "taskState",
         "taskResetButton",
         "taskStartButton",
@@ -110,6 +114,40 @@ def test_dashboard_v2_has_complete_mission_control_dom_contract(tmp_path):
     assert {"globalNotice", "taskState"} <= parser.aria_live_ids
 
 
+def test_dashboard_embeds_authenticated_same_origin_simulation_viewer(tmp_path):
+    database = Database(tmp_path / "platform.sqlite3")
+    database.initialize()
+    auth = AuthService(database=database)
+    auth.create_user("operator-a", "correct horse battery staple")
+    app = create_app(database=database, auth_service=auth)
+    parser = DashboardContractParser()
+    parser.feed(TestClient(app).get("/").text)
+
+    tag, attributes = parser.elements["simulationViewer"]
+    assert tag == "iframe"
+    assert attributes["data-src"] == "/simulation-viewer"
+    assert attributes["src"] == "about:blank"
+    assert attributes["title"] == "Webots 实时物理仿真"
+    assert "allow-scripts" in attributes["sandbox"]
+
+    with TestClient(app, base_url="https://testserver") as client:
+        assert client.get("/simulation-viewer").status_code == 401
+        login = client.post(
+            "/api/auth/login",
+            json={
+                "username": "operator-a",
+                "password": "correct horse battery staple",
+            },
+        )
+        assert login.status_code == 200
+        viewer = client.get("/simulation-viewer")
+
+    assert viewer.status_code == 200
+    assert '<webots-view id="webotsView">' in viewer.text
+    assert "R2025a/WebotsView.js" in viewer.text
+    assert "/static/simulation_viewer.js" in viewer.text
+
+
 def test_dashboard_v2_loads_small_native_javascript_modules(tmp_path):
     parser = DashboardContractParser()
     parser.feed(dashboard_html(tmp_path))
@@ -124,6 +162,8 @@ def test_dashboard_v2_loads_small_native_javascript_modules(tmp_path):
         "render.js",
         "controls.js",
         "replay.js",
+        "stream.js",
+        "simulation_viewer.js",
     ):
         assert (STATIC_DIR / filename).is_file()
 
@@ -133,6 +173,26 @@ def test_dashboard_v2_loads_small_native_javascript_modules(tmp_path):
     assert 'from "./render.js"' in entrypoint
     assert 'from "./controls.js"' in entrypoint
     assert 'from "./replay.js"' in entrypoint
+    assert 'from "./stream.js"' in entrypoint
+
+
+def test_webots_viewer_auto_connects_with_same_origin_secure_websocket():
+    stream_source = (STATIC_DIR / "stream.js").read_text(encoding="utf-8")
+    viewer_source = (STATIC_DIR / "simulation_viewer.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'iframe.dataset.src' in stream_source
+    assert 'iframe.src = "about:blank"' in stream_source
+    assert 'selectedMode === "simulation"' in stream_source
+    assert 'event.origin !== window.location.origin' in stream_source
+    assert 'location.protocol === "https:" ? "wss:" : "ws:"' in viewer_source
+    assert 'location.host' in viewer_source
+    assert '"/simulation"' in viewer_source
+    assert '.connect(' in viewer_source
+    assert '"w3d"' in viewer_source
+    assert '"maze.webots.ready"' in viewer_source
+    assert ".close()" in viewer_source
 
 
 def test_dashboard_controls_cover_auth_lease_tasks_and_shared_estop():

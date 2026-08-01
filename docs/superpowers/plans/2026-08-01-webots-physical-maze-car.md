@@ -536,7 +536,7 @@ Task 4 实施记录（2026-08-01）：
 - Create: `rdk_maze_tuner/tests/test_physical_pid.py`
 - Create: `rdk_maze_tuner/tests/test_physical_action_controller.py`
 
-- [ ] **5.1 写 PID 和电机模型失败测试**
+- [x] **5.1 写 PID 和电机模型失败测试**
 
 覆盖：
 
@@ -546,7 +546,7 @@ Task 4 实施记录（2026-08-01）：
 - 非有限输入立即失败且输出归零。
 - 同样输入和固定配置结果确定。
 
-- [ ] **5.2 写动作状态机失败测试**
+- [x] **5.2 写动作状态机失败测试**
 
 覆盖：
 
@@ -560,7 +560,7 @@ Task 4 实施记录（2026-08-01）：
 - 任一动作均保留 `action_id`。
 - 新动作不能覆盖活动动作。
 
-- [ ] **5.3 写安全与取消失败测试**
+- [x] **5.3 写安全与取消失败测试**
 
 覆盖：
 
@@ -584,7 +584,7 @@ Run:
 
 Expected: RED，因为 PID、motor model 和 action controller 尚不存在。
 
-- [ ] **5.4 实现纯 Python 控制内核**
+- [x] **5.4 实现纯 Python 控制内核**
 
 控制内核只消费：
 
@@ -603,13 +603,32 @@ Expected: RED，因为 PID、motor model 和 action controller 尚不存在。
 
 不得消费 `TruthSample`。
 
-- [ ] **5.5 运行目标测试和完整回归**
+- [x] **5.5 运行目标测试和完整回归**
 
-- [ ] **5.6 提交检查点**
+- [x] **5.6 提交检查点**
 
 ```text
 feat: add the physical wheel control loop
 ```
+
+Task 5 实施记录（2026-08-01）：
+
+- RED：PID、电机模型和动作控制器测试因三个目标模块不存在而在收集阶段
+  失败。
+- `VelocityPid` 固定按 device sample 的 8 ms 周期工作，导数只对 measurement，
+  积分和输出均限幅；非有限输入会 reset 并把最后输出归零。
+- `DualMotorModel` 实现 PWM 等效死区、左右增益、一阶响应、最大速度和
+  最大力矩；同一输入序列结果确定。
+- `PhysicalActionController` 为非阻塞状态机，动作目标优先使用命令里的
+  `target_ticks`；直行结合平均编码器、左右差和 IMU 航向，转向使用相反
+  轮速并以编码器为主、IMU 为收敛证据。
+- 完成必须经过减速区与连续稳定 tick；动作前不产生 done，新动作不能覆盖
+  活动动作，所有 done/error 均保留 `action_id`。
+- 已覆盖前障碍、动作/心跳超时、编码器停滞、持续空转、多证据碰撞、受控
+  pause/stop 以及立即归零且显式 clear 才解锁的 estop。
+- 目标测试：20 passed。
+- 完整 Python 回归：224 passed；`compileall` 通过。
+- ESP32 PlatformIO 构建通过：RAM 6.9%，Flash 24.2%。
 
 ### Task 6：PhysicalMazeEngine、协议和 Webots 主循环接线
 

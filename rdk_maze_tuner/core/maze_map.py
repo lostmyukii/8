@@ -66,6 +66,8 @@ class MazeMap:
         self._screen_coordinates = False
         self.rows: int | None = None
         self.cols: int | None = None
+        self.cell_width_mm: int | None = None
+        self.cell_height_mm: int | None = None
         self.map_version_id: str | None = None
         self.map_digest: str | None = None
         self.cells: Dict[Coord, Cell] = {}
@@ -89,6 +91,8 @@ class MazeMap:
         maze._screen_coordinates = True
         maze.rows = definition.rows
         maze.cols = definition.cols
+        maze.cell_width_mm = definition.cell_width_mm
+        maze.cell_height_mm = definition.cell_height_mm
         maze.map_version_id = map_version_id
         maze.map_digest = definition.content_digest
         for coord in definition.iter_cells():
@@ -222,6 +226,8 @@ class MazeMap:
             "wall_threshold_mm": self.wall_threshold_mm,
             "rows": self.rows,
             "cols": self.cols,
+            "cell_width_mm": self.cell_width_mm,
+            "cell_height_mm": self.cell_height_mm,
             "map_version_id": self.map_version_id,
             "map_digest": self.map_digest,
             "coordinate_system": (

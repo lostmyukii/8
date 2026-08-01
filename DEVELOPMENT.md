@@ -221,7 +221,7 @@ ESP32 / PlatformIO / Arduino
 启动完成：
 
 ```json
-{"type":"ready","fw":"maze-esp32","version":"0.1.0","features":["motor","encoder","tof","json_serial"]}
+{"type":"ready","fw":"maze-esp32","version":"0.1.0","imu_available":false,"features":["motor","encoder","tof","imu_optional","json_serial"]}
 ```
 
 命令确认：
@@ -233,8 +233,19 @@ ESP32 / PlatformIO / Arduino
 实时状态：
 
 ```json
-{"type":"telemetry","state":"MOVING_CELL","front_mm":320,"left_mm":180,"right_mm":260,"enc_left":612,"enc_right":608,"speed_left_ticks_s":410,"speed_right_ticks_s":406,"pwm_left":88,"pwm_right":91,"param_version":7}
+{"type":"telemetry","uptime_ms":123456,"state":"MOVING_CELL","front_mm":320,"left_mm":180,"right_mm":260,"enc_left":612,"enc_right":608,"speed_left_ticks_s":410,"speed_right_ticks_s":406,"pwm_left":88,"pwm_right":91,"param_version":7,"imu_available":false,"imu_quality":"not_configured"}
 ```
+
+IMU 是可选合同。未核对真实模块、I2C 地址和引脚前，ESP32 必须报告
+`imu_available=false`，不能生成伪姿态；配置真实 IMU 后才可额外发送
+`imu_yaw_deg`、`yaw_rate_dps` 和 `accel_forward_mps2`。未接 IMU 时格子定位
+可以降级运行，但连续车头方向只能标为低置信度，不能通过连续航向验收。
+
+Webots 可发送同名的确定性 IMU 字段，并把 `sim_truth` 放在独立的评估通道。
+`sim_truth` 只用于计算定位误差，禁止进入位姿融合器。
+为兼容原有 80/500 迷宫墙判断，Webots 另发 `fusion_front_mm`、
+`fusion_left_mm`、`fusion_right_mm` 作为连续墙距；融合器优先使用这些字段，
+规划器继续读取 `front_mm`、`left_mm`、`right_mm`。
 
 动作完成：
 
@@ -553,4 +564,3 @@ pio device monitor -b 115200
 - 第一阶段迷宫格子尺寸按 25cm 设计，实际值通过标定修正。
 - 当前三路测距为前、左、右；现有代码中的后向测距保留为可选扩展。
 - 摄像头第一阶段不参与运动实时闭环。
-

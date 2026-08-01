@@ -3,6 +3,7 @@
 
 #include "config.h"
 #include "encoder.h"
+#include "imu.h"
 #include "motion_controller.h"
 #include "motor.h"
 #include "params.h"
@@ -108,6 +109,7 @@ void setup() {
 
   motors.begin();
   Encoder::begin();
+  imuSource.begin();
   safetyGuard.begin(millis());
 
   String tofError;
@@ -115,13 +117,14 @@ void setup() {
     Protocol::sendError(Serial, "", "TOF_INIT_FAILED", tofError.c_str(), tofSensors.snapshot());
   }
 
-  Protocol::sendReady(Serial);
+  Protocol::sendReady(Serial, imuSource.snapshot());
 }
 
 void loop() {
   uint32_t now = millis();
   pollSerial();
   tofSensors.tick(now);
+  imuSource.tick(now);
 
   if (safetyGuard.heartbeatExpired(runtimeParams, now)) {
     if (!heartbeatTimeoutReported) {
@@ -147,8 +150,10 @@ void loop() {
     lastTelemetryMs = now;
     Protocol::sendTelemetry(
         Serial,
+        now,
         motionController.state(),
         tofSensors.snapshot(),
+        imuSource.snapshot(),
         Encoder::leftCount(),
         Encoder::rightCount(),
         lastPwmLeft,
@@ -156,4 +161,3 @@ void loop() {
         runtimeParams.param_version);
   }
 }
-

@@ -288,9 +288,11 @@ function renderPose(maze, telemetry, params, task) {
   );
   setText(
     "frictionValue",
-    Number.isFinite(Number(telemetry.friction_coefficient))
-      ? `μ ${numericText(telemetry.friction_coefficient, 2)}`
-      : "μ --",
+    Number.isFinite(Number(telemetry.equivalent_friction))
+      ? `等效 μ ${numericText(telemetry.equivalent_friction, 2)}`
+      : Number.isFinite(Number(telemetry.friction_coefficient))
+        ? `μ ${numericText(telemetry.friction_coefficient, 2)}`
+        : "μ --",
   );
   setText(
     "slipRate",
@@ -298,7 +300,12 @@ function renderPose(maze, telemetry, params, task) {
       ? `${numericText(Number(telemetry.slip_rate) * 100)}%`
       : "--%",
   );
-  setText("truthError", telemetry.truth_error_cm ? `${telemetry.truth_error_cm} cm` : "-");
+  setText(
+    "truthError",
+    Number.isFinite(Number(telemetry.truth_error_cm))
+      ? `${numericText(telemetry.truth_error_cm)} cm`
+      : "-",
+  );
   setText("taskElapsed", task?.elapsed || "T+ 00:00.0");
   $("headingNeedle")?.parentElement?.style.setProperty("--heading-deg", `${yaw}deg`);
 }
@@ -314,6 +321,30 @@ function renderEvidence(telemetry) {
     `${valueText(telemetry.pwm_left, "0")} / ${valueText(telemetry.pwm_right, "0")}`,
   );
   setText("yawRate", telemetry.yaw_rate_dps);
+  setText(
+    "imuState",
+    telemetry.imu_available
+      ? `可用 · ${valueText(telemetry.imu_quality, "有效")}`
+      : "未配置 / 降级",
+  );
+  const covariance = Array.isArray(telemetry.pose_covariance)
+    ? telemetry.pose_covariance
+    : [];
+  setText(
+    "poseCovariance",
+    covariance.length === 3
+      ? covariance.map((value) => numericText(value, 1)).join(" / ")
+      : "-",
+  );
+  setText(
+    "slipPair",
+    Number.isFinite(Number(telemetry.slip_left))
+    && Number.isFinite(Number(telemetry.slip_right))
+      ? `${numericText(Number(telemetry.slip_left) * 100)}% / ${
+          numericText(Number(telemetry.slip_right) * 100)
+        }%`
+      : "- / -",
+  );
   setText("wallResidual", telemetry.wall_residual_mm);
   setText("networkLatency", telemetry.network_latency_ms);
   setText("streamLatency", `延迟 ${valueText(telemetry.video_latency_ms)} ms`);

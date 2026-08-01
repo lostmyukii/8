@@ -553,11 +553,11 @@ feat: add versioned maze drawing editor
 - Modify: `esp32_firmware/src/main.cpp`
 - Modify: `esp32_firmware/platformio.ini`
 
-- [ ] **7.1 写仿真姿态失败测试**
+- [x] **7.1 写仿真姿态失败测试**
 
 模拟编码器预测、IMU yaw rate、ToF 墙面约束和 Webots 真值；断言真值只进入评估器，不进入融合输入。
 
-- [ ] **7.2 实现双层位置**
+- [x] **7.2 实现双层位置**
 
 输出：
 
@@ -565,11 +565,11 @@ feat: add versioned maze drawing editor
 - `x_mm`、`y_mm`、`yaw_deg`。
 - covariance、confidence、correction source。
 
-- [ ] **7.3 实现滑移指标**
+- [x] **7.3 实现滑移指标**
 
 比较编码器预测与 IMU/ToF 外部运动证据，输出左右滑移率、等效摩擦档案和质量标志。实车界面不把估算值标为物理真值。
 
-- [ ] **7.4 增加 IMU 可用性合同**
+- [x] **7.4 增加 IMU 可用性合同**
 
 先实现可编译的可选 `ImuSource`：
 
@@ -578,7 +578,7 @@ feat: add versioned maze drawing editor
 - 真实模块和引脚必须在实物核对后配置。
 - 未接 IMU 时允许格子定位降级运行，但连续航向验收失败。
 
-- [ ] **7.5 运行 Python 与 PlatformIO 验证**
+- [x] **7.5 运行 Python 与 PlatformIO 验证**
 
 ```bash
 .venv/bin/python -m pytest rdk_maze_tuner/tests/test_pose_fusion.py rdk_maze_tuner/tests/test_slip_estimator.py -q
@@ -586,11 +586,24 @@ feat: add versioned maze drawing editor
 (cd esp32_firmware && ../.venv/bin/pio run)
 ```
 
-- [ ] **7.6 提交检查点**
+- [x] **7.6 提交检查点**
 
 ```text
 feat: add fused pose and slip evidence
 ```
+
+**Task 7 实施记录（2026-08-01）：**
+
+- 初始 RED：`pose_fusion` 与 `slip_estimator` 模块不存在，目标测试在收集阶段出现 2 项模块缺失；核心模块建立后，Webots 遥测缺少 `imu_available`、Dashboard 快照缺少 `pose` 的 2 项合同测试继续保持失败。最终审查新增的墙距融合集成测试又以缺少 `fusion_left_mm` 失败，避免把兼容规划所需的 80/500 离散墙值误用成厘米级位姿证据。
+- 连续位姿使用编码器作预测、可选 IMU yaw/yaw rate 作方向修正、已知结构墙与 ToF 作位置约束；格子坐标和主方向只在动作完成后锚定，连续位置不反向改写规划格。
+- 输出 `x_mm`、`y_mm`、`yaw_deg`、速度、角速度、三项协方差、置信度、修正来源、墙面残差和质量标志；合法的设备时间戳 `0` 有独立回归覆盖。
+- Webots 提供确定性 IMU、插值编码器和独立连续墙距证据，同时保留原有 80/500 规划墙判断值；`sim_truth` 放在独立评估通道，协议白名单保证真值不能进入融合输入，只计算位置和方向误差。
+- 滑移估算比较左右编码器预测、同一已知前墙距离变化和可用 IMU 方向证据，输出左右/总体滑移率、等效摩擦档案、置信度与质量标志；结果明确标记 `is_physical_truth=false`，证据不足时输出未知而非伪数值。
+- ESP32 增加硬件中立的可选 `ImuSource`；未核对真实模块、I2C 地址和引脚时固定报告 `imu_available=false` / `not_configured`，不生成伪姿态，原有电机、编码器、ToF 和安全闭环不变。
+- Dashboard 增加 IMU 可用性、定位协方差、左右轮滑移和“等效摩擦估算”证据，未把估算摩擦标成实测物理真值。
+- 目标测试：13 passed；完整 Python 回归：147 passed；一次与其他三组检查并行运行时，旧任务编排测试的 1 秒暂停等待窗口出现超时，单独复现通过，串行完整回归无失败。
+- `compileall`、全部 Dashboard JavaScript `node --check`、`uv pip check` 和 ESP32 PlatformIO 构建通过；固件资源占用为 RAM 6.9%、Flash 24.2%。
+- 本任务未启动 Webots GUI、未连接 RDK X3、真实 IMU 或真实小车，未执行固件烧录和真实运动；真实连续航向、ToF 安装偏移、轮胎滑移标定和物理摩擦仍需按硬件验收顺序实测。
 
 ### Task 8：成绩、视频、时间轴和同步回放
 

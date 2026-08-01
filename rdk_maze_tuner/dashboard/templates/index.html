@@ -138,7 +138,7 @@
                 <strong id="speedValue">-- cm/s</strong>
               </div>
               <div>
-                <span>摩擦 / 滑移</span>
+                <span>等效摩擦估算 / 滑移</span>
                 <strong><b id="frictionValue">μ --</b> · <b id="slipRate">--%</b></strong>
               </div>
               <div>
@@ -221,6 +221,9 @@
           <div><span>右编码器</span><strong id="encRight">0</strong><small>ticks</small></div>
           <div><span>PWM L / R</span><strong id="pwmPair">0 / 0</strong><small id="lastAck">ACK -</small></div>
           <div><span>IMU yaw rate</span><strong id="yawRate">-</strong><small>°/s</small></div>
+          <div><span>IMU 可用性</span><strong id="imuState">未配置</strong><small>quality</small></div>
+          <div><span>定位协方差</span><strong id="poseCovariance">-</strong><small>x / y / yaw</small></div>
+          <div><span>左右轮滑移估算</span><strong id="slipPair">- / -</strong><small>L / R</small></div>
           <div><span>墙面残差</span><strong id="wallResidual">-</strong><small>mm</small></div>
           <div><span>网络延迟</span><strong id="networkLatency">-</strong><small>ms</small></div>
         </section>

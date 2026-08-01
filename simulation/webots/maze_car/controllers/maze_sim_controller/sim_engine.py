@@ -86,6 +86,14 @@ class MazeSimEngine:
             "type": "ready",
             "fw": "maze-webots-sim",
             "version": "0.1.0",
+            "imu_available": True,
+            "features": [
+                "motor",
+                "encoder",
+                "tof",
+                "imu_simulated",
+                "json_serial",
+            ],
             "simulated": True,
             "map_version_id": self.map_version_id,
             "map_digest": self.map_digest,
@@ -195,20 +203,42 @@ class MazeSimEngine:
 
     def telemetry_message(self) -> dict[str, Any]:
         front_mm, left_mm, right_mm = self._sensor_distances()
+        fusion_front_mm, fusion_left_mm, fusion_right_mm = (
+            self._continuous_wall_distances()
+        )
+        enc_left, enc_right = self._current_encoder_counts()
+        truth = self._truth_pose()
+        imu_yaw = normalize_navigation_yaw(
+            truth["yaw_deg"]
+            + 0.35 * math.sin(self.last_now_ms / 1000.0)
+        )
         return {
             "type": "telemetry",
+            "ts_ms": self.last_now_ms,
             "state": self.state,
             "front_mm": front_mm,
             "left_mm": left_mm,
             "right_mm": right_mm,
-            "enc_left": self.enc_left,
-            "enc_right": self.enc_right,
+            "fusion_front_mm": fusion_front_mm,
+            "fusion_left_mm": fusion_left_mm,
+            "fusion_right_mm": fusion_right_mm,
+            "enc_left": enc_left,
+            "enc_right": enc_right,
             "pwm_left": 0 if self.pending is None else 80,
             "pwm_right": 0 if self.pending is None else 80,
             "param_version": self.param_version,
+            "imu_available": True,
+            "imu_quality": "simulated",
+            "imu_yaw_deg": float(round(imu_yaw, 4)),
+            "yaw_rate_dps": float(
+                round(self._imu_yaw_rate_dps(), 4)
+            ),
+            "accel_forward_mps2": 0.0,
+            "quality_flags": [],
             "simulated": True,
             "sim_cell": list(self.cell),
             "sim_heading": self.heading,
+            "sim_truth": truth,
             "map_version_id": self.map_version_id,
             "map_digest": self.map_digest,
         }
@@ -220,14 +250,86 @@ class MazeSimEngine:
             return x, z, HEADING_ANGLES[self.heading]
 
         action = self.pending
-        progress = min(1.0, max(0.0, (self.last_now_ms - action.start_ms) / action.duration_ms))
-        eased = progress * progress * (3.0 - 2.0 * progress)
+        eased = self._motion_progress()
         start_x, start_z = self._cell_to_world(action.start_cell)
         target_x, target_z = self._cell_to_world(action.target_cell)
         x = start_x + (target_x - start_x) * eased
         z = start_z + (target_z - start_z) * eased
         yaw = HEADING_ANGLES[HEADINGS[action.start_heading]] + action.angle_delta * eased
         return x, z, yaw
+
+    def _truth_pose(self) -> dict[str, Any]:
+        if self.pending is None:
+            grid_x = float(self.cell[0])
+            grid_y = float(self.cell[1])
+            yaw_deg = heading_navigation_yaw(self.heading)
+        else:
+            action = self.pending
+            progress = self._motion_progress()
+            grid_x = (
+                action.start_cell[0]
+                + (action.target_cell[0] - action.start_cell[0])
+                * progress
+            )
+            grid_y = (
+                action.start_cell[1]
+                + (action.target_cell[1] - action.start_cell[1])
+                * progress
+            )
+            start_yaw = heading_navigation_yaw(
+                HEADINGS[action.start_heading]
+            )
+            yaw_deg = normalize_navigation_yaw(
+                start_yaw
+                - math.degrees(action.angle_delta) * progress
+            )
+        return {
+            "x_mm": round(
+                (grid_x + 0.5) * self.cell_width_m * 1000.0,
+                3,
+            ),
+            "y_mm": round(
+                (grid_y + 0.5) * self.cell_height_m * 1000.0,
+                3,
+            ),
+            "yaw_deg": round(yaw_deg, 3),
+            "cell": list(self.cell),
+            "heading": self.heading,
+        }
+
+    def _motion_progress(self) -> float:
+        if self.pending is None:
+            return 0.0
+        action = self.pending
+        progress = min(
+            1.0,
+            max(
+                0.0,
+                (self.last_now_ms - action.start_ms)
+                / action.duration_ms,
+            ),
+        )
+        return progress * progress * (3.0 - 2.0 * progress)
+
+    def _current_encoder_counts(self) -> tuple[int, int]:
+        if self.pending is None:
+            return self.enc_left, self.enc_right
+        ticks = int(
+            round(self.pending.target_ticks * self._motion_progress())
+        )
+        if self.pending.name == "move_cell":
+            return self.enc_left + ticks, self.enc_right + ticks
+        if self.pending.name == "turn_left":
+            return self.enc_left - ticks, self.enc_right + ticks
+        return self.enc_left + ticks, self.enc_right - ticks
+
+    def _imu_yaw_rate_dps(self) -> float:
+        if self.pending is None:
+            return 0.0
+        return (
+            -math.degrees(self.pending.angle_delta)
+            / (self.pending.duration_ms / 1000.0)
+        )
 
     def _start_action(self, message: Mapping[str, Any], *, seq: int, now_ms: int) -> list[dict[str, Any]]:
         action_id = str(message.get("action_id") or "")
@@ -319,6 +421,59 @@ class MazeSimEngine:
             HEADINGS[(self.heading_index + 1) % 4],
         )
         return tuple(80 if self._has_wall(self.cell, heading) else 500 for heading in headings)
+
+    def _continuous_wall_distances(self) -> tuple[int, int, int]:
+        truth = self._truth_pose()
+        headings = (
+            self.heading,
+            HEADINGS[(self.heading_index - 1) % 4],
+            HEADINGS[(self.heading_index + 1) % 4],
+        )
+        return tuple(
+            self._distance_to_wall_mm(
+                x_mm=float(truth["x_mm"]),
+                y_mm=float(truth["y_mm"]),
+                heading=heading,
+            )
+            for heading in headings
+        )
+
+    def _distance_to_wall_mm(
+        self,
+        *,
+        x_mm: float,
+        y_mm: float,
+        heading: str,
+    ) -> int:
+        width_mm = self.cell_width_m * 1000.0
+        height_mm = self.cell_height_m * 1000.0
+        cell_x = min(
+            self.width - 1,
+            max(0, int(x_mm // width_mm)),
+        )
+        cell_y = min(
+            self.height - 1,
+            max(0, int(y_mm // height_mm)),
+        )
+        cell = (cell_x, cell_y)
+        if heading == "N":
+            distance = y_mm - cell_y * height_mm
+            step = height_mm
+        elif heading == "S":
+            distance = (cell_y + 1) * height_mm - y_mm
+            step = height_mm
+        elif heading == "W":
+            distance = x_mm - cell_x * width_mm
+            step = width_mm
+        else:
+            distance = (cell_x + 1) * width_mm - x_mm
+            step = width_mm
+
+        while not self._has_wall(cell, heading):
+            dx, dy = DELTAS[heading]
+            cell = (cell[0] + dx, cell[1] + dy)
+            distance += step
+        return max(0, int(round(distance)))
 
     def _has_wall(self, cell: Cell, heading: str) -> bool:
         dx, dy = DELTAS[heading]
@@ -446,3 +601,16 @@ def _default_map_definition() -> MapDefinition:
             "source_image_digest": None,
         }
     )
+
+
+def normalize_navigation_yaw(value: float) -> float:
+    return float(value) % 360.0
+
+
+def heading_navigation_yaw(heading: str) -> float:
+    return {
+        "N": 0.0,
+        "E": 90.0,
+        "S": 180.0,
+        "W": 270.0,
+    }[heading]

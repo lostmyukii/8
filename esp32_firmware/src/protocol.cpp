@@ -10,16 +10,18 @@ void writeJsonLine(Stream &stream, JsonDocument &doc) {
 }  // namespace
 
 namespace Protocol {
-void sendReady(Stream &stream) {
+void sendReady(Stream &stream, const ImuSnapshot &imu) {
   StaticJsonDocument<256> doc;
   doc["type"] = "ready";
   doc["fw"] = Config::FW_NAME;
   doc["version"] = Config::FW_VERSION;
+  doc["imu_available"] = imu.available;
   JsonArray features = doc.createNestedArray("features");
   features.add("motor");
   features.add("encoder");
   features.add("tof");
   features.add("json_serial");
+  features.add("imu_optional");
   writeJsonLine(stream, doc);
 }
 
@@ -36,15 +38,18 @@ void sendAck(Stream &stream, int seq, bool ok, const String &message) {
 
 void sendTelemetry(
     Stream &stream,
+    uint32_t uptimeMs,
     MotionState state,
     const SensorSnapshot &sensors,
+    const ImuSnapshot &imu,
     long encLeft,
     long encRight,
     int pwmLeft,
     int pwmRight,
     uint32_t paramVersion) {
-  StaticJsonDocument<384> doc;
+  StaticJsonDocument<512> doc;
   doc["type"] = "telemetry";
+  doc["uptime_ms"] = uptimeMs;
   switch (state) {
     case MotionState::IDLE:
       doc["state"] = "IDLE";
@@ -76,6 +81,13 @@ void sendTelemetry(
   doc["pwm_left"] = pwmLeft;
   doc["pwm_right"] = pwmRight;
   doc["param_version"] = paramVersion;
+  doc["imu_available"] = imu.available;
+  doc["imu_quality"] = imu.quality;
+  if (imu.available) {
+    doc["imu_yaw_deg"] = imu.yaw_deg;
+    doc["yaw_rate_dps"] = imu.yaw_rate_dps;
+    doc["accel_forward_mps2"] = imu.accel_forward_mps2;
+  }
   writeJsonLine(stream, doc);
 }
 
@@ -108,4 +120,3 @@ void sendError(Stream &stream, const String &actionId, const char *code, const c
   writeJsonLine(stream, doc);
 }
 }  // namespace Protocol
-

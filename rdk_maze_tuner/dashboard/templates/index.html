@@ -3,110 +3,294 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>RDK Maze Tuner</title>
+    <meta name="color-scheme" content="light">
+    <link rel="icon" href="data:,">
+    <title>迷宫小车任务台</title>
     <link rel="stylesheet" href="/static/app.css">
   </head>
   <body>
-    <header class="topbar">
-      <div class="brand">
-        <span class="brand__title">RDK Maze Tuner</span>
-        <span id="connectionState" class="status status--offline">离线</span>
+    <div id="globalNotice" class="global-notice" role="status" aria-live="polite"></div>
+
+    <section id="loginGate" class="login-gate" aria-labelledby="loginTitle">
+      <div class="login-card">
+        <div class="login-mark" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </div>
+        <p class="eyebrow">RDK X3 · ESP32 · WEBOTS</p>
+        <h1 id="loginTitle">迷宫小车任务台</h1>
+        <p class="login-copy">登录后观看仿真或实车状态。两名成员可同时在线，只有控制权持有人可以操作，任何登录用户都可以急停。</p>
+        <form id="loginForm" class="login-form">
+          <label for="username">账户</label>
+          <input id="username" name="username" autocomplete="username" required>
+          <label for="password">密码</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required>
+          <button class="primary-button" type="submit">进入任务台</button>
+          <p id="loginError" class="form-message" aria-live="polite"></p>
+        </form>
       </div>
-      <div class="topbar__meta">
-        <span id="esp32State">OFFLINE</span>
-        <span id="paramVersion">v1</span>
-      </div>
-      <button id="estopButton" class="danger-button" type="button">急停</button>
-    </header>
+    </section>
 
-    <main class="workspace">
-      <section class="panel panel--map">
-        <div class="panel__head">
-          <h1>地图</h1>
-          <span id="poseLabel">0,0 N</span>
+    <div id="appShell" class="app-shell" aria-hidden="true">
+      <header class="mission-bar">
+        <div class="brand-block">
+          <span class="brand-kicker">MAZE OPS / 08</span>
+          <strong>迷宫小车任务台</strong>
         </div>
-        <pre id="mazeMap" class="maze-map"></pre>
-      </section>
 
-      <section class="panel">
-        <div class="panel__head">
-          <h2>传感器</h2>
-          <span id="lastAck">ACK -</span>
+        <div class="mode-selector" role="group" aria-label="运行模式">
+          <button id="modeSimulation" class="mode-button is-active" type="button" data-mode="simulation">
+            <span class="mode-dot" aria-hidden="true"></span>
+            仿真模式
+          </button>
+          <button id="modeReal" class="mode-button" type="button" data-mode="real">
+            <span class="mode-dot" aria-hidden="true"></span>
+            真实小车
+          </button>
         </div>
-        <div class="metrics">
-          <div><span>前</span><strong id="frontMm">-</strong></div>
-          <div><span>左</span><strong id="leftMm">-</strong></div>
-          <div><span>右</span><strong id="rightMm">-</strong></div>
-          <div><span>左码盘</span><strong id="encLeft">0</strong></div>
-          <div><span>右码盘</span><strong id="encRight">0</strong></div>
-          <div><span>PWM</span><strong id="pwmPair">0 / 0</strong></div>
-        </div>
-      </section>
 
-      <section class="panel">
-        <div class="panel__head">
-          <h2>手动控制</h2>
-          <span id="currentAction">-</span>
+        <div class="health-strip" aria-label="系统连接状态">
+          <span><i id="webotsLamp"></i>Webots <b id="webotsState">待机</b></span>
+          <span><i id="rdkLamp"></i>RDK <b id="rdkState">离线</b></span>
+          <span><i id="esp32Lamp"></i>ESP32 <b id="esp32State">OFFLINE</b></span>
         </div>
-        <div class="control-grid">
-          <button data-action="move_cell" type="button">前进</button>
-          <button data-action="turn_left" type="button">左转</button>
-          <button data-action="turn_right" type="button">右转</button>
-          <button data-action="turn_back" type="button">掉头</button>
-          <button id="stopButton" class="stop-button" type="button">停止</button>
-        </div>
-      </section>
 
-      <section class="panel panel--params">
-        <div class="panel__head">
-          <h2>参数</h2>
-          <span id="paramResult">-</span>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>参数</th>
-                <th>当前值</th>
-                <th>新值</th>
-                <th>下发</th>
-              </tr>
-            </thead>
-            <tbody id="paramTable"></tbody>
-          </table>
-        </div>
-      </section>
-
-      <section class="panel">
-        <div class="panel__head">
-          <h2>自动调参</h2>
-          <label class="switch">
-            <input id="autoTuneToggle" type="checkbox" checked>
-            <span>启用</span>
-          </label>
-        </div>
-        <dl class="summary-list">
+        <div class="lease-block">
           <div>
-            <dt>最近原因</dt>
-            <dd id="lastTuneReason">-</dd>
+            <span class="utility-label">控制权</span>
+            <strong id="leaseState">只读观看</strong>
+            <small id="leaseTimer">未取得租约</small>
           </div>
-          <div>
-            <dt>最近变更</dt>
-            <dd id="lastTuneChange">-</dd>
-          </div>
-        </dl>
-      </section>
-
-      <section class="panel panel--logs">
-        <div class="panel__head">
-          <h2>日志</h2>
-          <span id="logCount">0</span>
+          <button id="claimControlButton" class="quiet-button" type="button">取得控制权</button>
+          <button id="releaseControlButton" class="quiet-button" type="button" hidden>释放</button>
         </div>
-        <ol id="logList" class="log-list"></ol>
-      </section>
-    </main>
 
-    <script src="/static/app.js" defer></script>
+        <div class="account-block">
+          <span id="userName">-</span>
+          <button id="logoutButton" type="button">退出</button>
+        </div>
+
+        <button id="estopButton" class="estop-button" type="button">
+          <span aria-hidden="true"></span>
+          急停
+        </button>
+      </header>
+
+      <main class="mission-workspace">
+        <section class="mission-grid" aria-label="任务操作区">
+          <article class="console-card live-card">
+            <header class="card-heading">
+              <div>
+                <p class="eyebrow">LIVE CHANNEL</p>
+                <h2>实时画面</h2>
+              </div>
+              <div class="inline-status">
+                <span id="connectionState" class="status-pill status-pill--lost">LOST</span>
+                <span id="streamLatency">延迟 - ms</span>
+              </div>
+            </header>
+
+            <div id="liveViewport" class="live-viewport">
+              <div id="streamFrame" class="stream-frame" data-mode="simulation" role="img" aria-label="Webots 或真实小车实时画面">
+                <div class="stream-grid" aria-hidden="true"></div>
+                <div class="stream-placeholder">
+                  <span class="vehicle-glyph" aria-hidden="true">
+                    <i></i><i></i><i></i>
+                  </span>
+                  <strong id="streamTitle">等待 Webots 画面</strong>
+                  <small id="streamHint">仿真服务连接后在这里显示实时视频</small>
+                </div>
+                <div class="stream-overlay stream-overlay--top">
+                  <span id="taskElapsed">T+ 00:00.0</span>
+                  <span id="streamModeLabel">SIM / WEBOTS</span>
+                </div>
+                <div class="stream-overlay stream-overlay--bottom">
+                  <span>估值 / 真值误差 <b id="truthError">-</b></span>
+                  <span>当前动作 <b id="currentAction">待机</b></span>
+                </div>
+              </div>
+
+              <div class="heading-instrument" aria-label="车头航向仪">
+                <span class="heading-instrument__north">N</span>
+                <span class="heading-instrument__east">E</span>
+                <span class="heading-instrument__south">S</span>
+                <span class="heading-instrument__west">W</span>
+                <i id="headingNeedle" class="heading-instrument__needle"></i>
+                <div>
+                  <strong id="headingValue">0°</strong>
+                  <small id="headingCardinal">北</small>
+                </div>
+                <span id="poseConfidence" class="confidence-chip">置信度 --</span>
+              </div>
+            </div>
+
+            <div class="pose-dock">
+              <div>
+                <span>可靠主定位</span>
+                <strong id="cellPosition">格 (0, 0)</strong>
+              </div>
+              <div>
+                <span>连续估算</span>
+                <strong id="continuousPose">x -- cm · y -- cm</strong>
+              </div>
+              <div>
+                <span>速度</span>
+                <strong id="speedValue">-- cm/s</strong>
+              </div>
+              <div>
+                <span>摩擦 / 滑移</span>
+                <strong><b id="frictionValue">μ --</b> · <b id="slipRate">--%</b></strong>
+              </div>
+              <div>
+                <span>最近修正</span>
+                <strong id="poseCorrection">等待定位证据</strong>
+              </div>
+            </div>
+          </article>
+
+          <aside class="console-card task-card">
+            <header class="card-heading">
+              <div>
+                <p class="eyebrow">TASK ORCHESTRATOR</p>
+                <h2>自动探索</h2>
+              </div>
+              <span id="taskState" class="task-state" aria-live="polite">IDLE</span>
+            </header>
+
+            <div class="task-context">
+              <label>
+                <span>地图版本</span>
+                <input id="mapVersionInput" value="map-draft-v1">
+              </label>
+              <label>
+                <span>参数版本</span>
+                <input id="paramVersionInput" value="1">
+              </label>
+              <fieldset>
+                <legend>目标格</legend>
+                <label for="goalX">X</label>
+                <input id="goalX" type="number" value="0">
+                <label for="goalY">Y</label>
+                <input id="goalY" type="number" value="3">
+              </fieldset>
+            </div>
+
+            <div class="state-rail" aria-label="任务状态流程">
+              <span data-task-step="PREFLIGHT">预检</span>
+              <span data-task-step="READY">就绪</span>
+              <span data-task-step="RUNNING">探索</span>
+              <span data-task-step="FINALIZING">收尾</span>
+              <span data-task-step="COMPLETED">完成</span>
+            </div>
+
+            <div class="task-actions">
+              <button id="taskResetButton" class="secondary-button" type="button">预检并重置</button>
+              <button id="taskStartButton" class="primary-button" type="button">开始自动探索</button>
+              <button id="taskPauseButton" class="secondary-button" type="button">暂停</button>
+              <button id="stopButton" class="stop-button" type="button">停止</button>
+            </div>
+
+            <div class="task-summary">
+              <div><span>任务</span><strong id="taskId">尚未创建</strong></div>
+              <div><span>运行</span><strong id="runId">-</strong></div>
+              <div><span>步数</span><strong id="stepCount">0 / 500</strong></div>
+              <div><span>最近结果</span><strong id="lastStepOutcome">-</strong></div>
+            </div>
+
+            <p id="controlHint" class="control-hint">当前为只读观看。取得控制权后可操作任务。</p>
+
+            <details class="manual-control">
+              <summary>单步调试</summary>
+              <div class="manual-control__grid">
+                <button type="button" data-action="move_cell">前进一格</button>
+                <button type="button" data-action="turn_left">左转</button>
+                <button type="button" data-action="turn_right">右转</button>
+                <button type="button" data-action="turn_back">掉头</button>
+              </div>
+            </details>
+          </aside>
+        </section>
+
+        <section class="evidence-strip" aria-label="实时传感器与运动证据">
+          <div><span>前 ToF</span><strong id="frontMm">-</strong><small>mm</small></div>
+          <div><span>左 ToF</span><strong id="leftMm">-</strong><small>mm</small></div>
+          <div><span>右 ToF</span><strong id="rightMm">-</strong><small>mm</small></div>
+          <div><span>左编码器</span><strong id="encLeft">0</strong><small>ticks</small></div>
+          <div><span>右编码器</span><strong id="encRight">0</strong><small>ticks</small></div>
+          <div><span>PWM L / R</span><strong id="pwmPair">0 / 0</strong><small id="lastAck">ACK -</small></div>
+          <div><span>IMU yaw rate</span><strong id="yawRate">-</strong><small>°/s</small></div>
+          <div><span>墙面残差</span><strong id="wallResidual">-</strong><small>mm</small></div>
+          <div><span>网络延迟</span><strong id="networkLatency">-</strong><small>ms</small></div>
+        </section>
+
+        <section class="analysis-grid">
+          <article class="console-card map-card">
+            <header class="card-heading">
+              <div>
+                <p class="eyebrow">MAZE MODEL</p>
+                <h2>实时地图</h2>
+              </div>
+              <span id="poseLabel">0,0 N</span>
+            </header>
+            <pre id="mazeMap" class="maze-map" aria-label="迷宫 ASCII 地图"></pre>
+          </article>
+
+          <article class="console-card timeline-card">
+            <header class="card-heading">
+              <div>
+                <p class="eyebrow">IMMUTABLE EVENTS</p>
+                <h2>事件时间轴</h2>
+              </div>
+              <span id="logCount">0 条</span>
+            </header>
+            <ol id="eventTimeline" class="event-timeline"></ol>
+          </article>
+        </section>
+
+        <section id="paramWorkbench" class="console-card param-card">
+          <header class="card-heading">
+            <div>
+              <p class="eyebrow">TECHNICAL WORKBENCH</p>
+              <h2>参数与环境证据</h2>
+            </div>
+            <div class="param-toolbar">
+              <label class="auto-tune-switch">
+                <input id="autoTuneToggle" type="checkbox" checked>
+                <span>规则自动调参</span>
+              </label>
+              <span id="paramVersion">参数 v1</span>
+              <span id="paramResult">未修改</span>
+            </div>
+          </header>
+
+          <div class="param-evidence">
+            <div><span>车体质量</span><strong id="robotMass">-- kg</strong></div>
+            <div><span>轮半径 / 轮距</span><strong id="wheelGeometry">-- / -- cm</strong></div>
+            <div><span>电池电压</span><strong id="batteryVoltage">-- V</strong></div>
+            <div><span>姿态异常</span><strong id="attitudeAlert">无</strong></div>
+            <div><span>最近调参原因</span><strong id="lastTuneReason">-</strong></div>
+            <div><span>最近参数变化</span><strong id="lastTuneChange">-</strong></div>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>参数</th>
+                  <th>当前值</th>
+                  <th>单位</th>
+                  <th>允许范围</th>
+                  <th>来源</th>
+                  <th>候选值</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="paramTable"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/static/app.js" type="module"></script>
   </body>
 </html>
-

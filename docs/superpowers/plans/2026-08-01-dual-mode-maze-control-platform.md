@@ -380,7 +380,7 @@ feat: orchestrate safe maze tasks
 - Create: `rdk_maze_tuner/dashboard/static/controls.js`
 - Create: `rdk_maze_tuner/tests/test_dashboard_ui.py`
 
-- [ ] **5.1 写 DOM 合同失败测试**
+- [x] **5.1 写 DOM 合同失败测试**
 
 页面必须包含：
 
@@ -393,15 +393,15 @@ feat: orchestrate safe maze tasks
 - 参数技术工作台。
 - 实时地图和事件时间轴。
 
-- [ ] **5.2 按已批准视觉稿重构静态页面**
+- [x] **5.2 按已批准视觉稿重构静态页面**
 
 保持原生 JavaScript；把 `app.js` 收敛为模块入口，具体逻辑拆入新文件，避免继续扩大单一文件。
 
-- [ ] **5.3 接入鉴权、控制权和任务 WebSocket**
+- [x] **5.3 接入鉴权、控制权和任务 WebSocket**
 
 WebSocket 只推送增量或节流后的状态，页面目标更新 10–20 Hz。断线显示 LOST，不自动重发 start。
 
-- [ ] **5.4 响应式验收**
+- [x] **5.4 响应式验收**
 
 至少检查：
 
@@ -409,17 +409,29 @@ WebSocket 只推送增量或节流后的状态，页面目标更新 10–20 Hz�
 - 1280×800 笔记本。
 - 768px 宽只读观看。
 
-- [ ] **5.5 运行测试**
+- [x] **5.5 运行测试**
 
 ```bash
 .venv/bin/python -m pytest rdk_maze_tuner/tests/test_dashboard.py rdk_maze_tuner/tests/test_dashboard_ui.py -q
 ```
 
-- [ ] **5.6 提交检查点**
+- [x] **5.6 提交检查点**
 
 ```text
 feat: build dual-mode control console
 ```
+
+**Task 5 实施记录（2026-08-01）：**
+
+- 初始 RED：新增 DOM、模块拆分、鉴权/租约/任务端点和响应式合同测试，共 4 项失败；随后按合同补齐实现。
+- 主控制台采用任务台布局：固定模式/连接/控制权/急停任务栏，16:9 实时画面与航向仪，任务编排、传感证据、地图、事件时间轴和参数技术工作台。
+- 仿真/实车切换复用同一数据模型；租约持有人可控制模式、任务与非安全参数，只读用户仍可观看并触发急停。安全参数保持锁定。
+- `app.js` 收敛为入口，鉴权与 API、状态、渲染、控制分别拆入模块；WebSocket 状态按 100 ms 节流渲染，连接失败只显示 LOST/轮询恢复，不自动重发 start。
+- `ParamManager` 状态快照补充参数范围，任务快照补充最近不可变事件，供参数表和时间轴直接呈现。
+- Playwright 实际浏览器验收 1440×900、1280×800、768×900；无横向溢出，模式切换和释放租约后的只读降级符合预期，正常在线状态浏览器控制台 0 error。
+- Task 5 目标测试：19 passed；完整 Python 回归：110 passed。
+- `compileall`、全部 Dashboard JavaScript `node --check`、`uv pip check` 和 ESP32 PlatformIO 构建通过。
+- 本任务未连接 Webots 视频流、RDK X3 或真实小车，未执行固件烧录和真实运动；画面接入及现场物理验收仍需在对应设备在线后完成。
 
 阶段 A 验收：
 

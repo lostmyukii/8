@@ -96,6 +96,7 @@ class ParamManager:
             "param_version": self.param_version,
             "params": copy.deepcopy(self.params),
             "esp32_params": self.esp32_params(),
+            "limits": copy.deepcopy(self.limits),
         }
 
     def _validate(self, dotted_path: str, value: Any) -> None:

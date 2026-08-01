@@ -211,6 +211,7 @@ def test_dashboard_state_contains_params_map_and_logs(tmp_path):
     assert payload["connected"] is False
     assert payload["telemetry"]["state"] == "OFFLINE"
     assert payload["params"]["esp32_params"]["base_speed"] == 0.25
+    assert payload["params"]["limits"]["motor.base_speed"] == [0.10, 0.45]
     assert payload["maze"]["position"] == [0, 0]
     assert payload["auto_tune_enabled"] is True
     assert isinstance(payload["logs"], list)
@@ -336,10 +337,16 @@ def test_dashboard_action_wait_does_not_block_heartbeat():
 def test_dashboard_frontend_uses_websocket_ping_refresh(tmp_path):
     client = TestClient(make_test_app(tmp_path))
 
-    response = client.get("/static/app.js")
+    entrypoint = client.get("/static/app.js")
+    socket_module = client.get("/static/api.js")
 
-    assert response.status_code == 200
-    assert 'socket.send(JSON.stringify({ type: "ping" }))' in response.text
+    assert entrypoint.status_code == 200
+    assert socket_module.status_code == 200
+    assert 'from "./api.js"' in entrypoint.text
+    assert (
+        'socket.send(JSON.stringify({ type: "ping" }))'
+        in socket_module.text
+    )
 
 
 def test_dashboard_manual_move_sends_action_and_applies_done_to_map():

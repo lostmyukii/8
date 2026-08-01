@@ -187,6 +187,10 @@ def test_orchestrator_runs_to_goal_and_persists_structured_events(tmp_path):
     assert started["status"] == "RUNNING"
     assert completed["status"] == "COMPLETED"
     assert completed["step_count"] == 2
+    assert any(
+        event["type"] == "task.completed"
+        for event in completed["recent_events"]
+    )
     event_types = [
         event["type"] for event in events.list_events(ready["run_id"])
     ]

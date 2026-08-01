@@ -1019,6 +1019,7 @@ class TaskOrchestrator:
             "adapter": _json_ready(task.adapter_snapshot),
             "last_step": _json_ready(task.last_step),
             "event_count": len(task.events),
+            "recent_events": _json_ready(task.events[-40:]),
             "operation": task.operation,
             **state,
         }

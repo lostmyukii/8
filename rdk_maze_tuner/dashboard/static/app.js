@@ -1,181 +1,112 @@
-const state = {
-  latest: null,
-  socket: null,
-  pingTimer: null,
-};
+import {
+  ApiError,
+  currentUser,
+  fetchDashboardState,
+  openStateSocket,
+} from "./api.js";
+import {
+  getAppState,
+  setAuthenticated,
+  setPayload,
+  setSocketConnected,
+  subscribe,
+} from "./state.js";
+import {
+  renderAuthGate,
+  renderDashboard,
+  showNotice,
+} from "./render.js";
+import { bindControls } from "./controls.js";
 
-const $ = (id) => document.getElementById(id);
+let socket = null;
+let reconnectTimer = null;
+let pollTimer = null;
+let renderTimer = null;
+let lastRenderAt = 0;
 
-function valueText(value) {
-  if (value === null || value === undefined || value === "") return "-";
-  return String(value);
+function scheduleRender(appState) {
+  const elapsed = performance.now() - lastRenderAt;
+  if (renderTimer) window.clearTimeout(renderTimer);
+  renderTimer = window.setTimeout(
+    () => {
+      lastRenderAt = performance.now();
+      renderDashboard(getAppState());
+    },
+    Math.max(0, 100 - elapsed),
+  );
 }
 
-function flattenParams(node, prefix = "", rows = []) {
-  Object.entries(node || {}).forEach(([key, value]) => {
-    const path = prefix ? `${prefix}.${key}` : key;
-    if (value && typeof value === "object" && !Array.isArray(value)) {
-      flattenParams(value, path, rows);
-    } else {
-      rows.push([path, value]);
+subscribe(scheduleRender);
+renderAuthGate(false);
+
+async function refreshState() {
+  const payload = await fetchDashboardState();
+  setPayload(payload);
+  return payload;
+}
+
+function stopLiveUpdates() {
+  if (socket) socket.close();
+  socket = null;
+  if (reconnectTimer) window.clearTimeout(reconnectTimer);
+  reconnectTimer = null;
+  if (pollTimer) window.clearInterval(pollTimer);
+  pollTimer = null;
+  setSocketConnected(false);
+}
+
+function startLiveUpdates() {
+  if (!getAppState().authenticated || socket) return;
+  socket = openStateSocket({
+    onOpen: () => {
+      setSocketConnected(true);
+    },
+    onState: (payload) => {
+      setPayload(payload);
+    },
+    onError: () => {
+      setSocketConnected(false);
+    },
+    onClose: () => {
+      socket = null;
+      setSocketConnected(false);
+      if (getAppState().authenticated) {
+        reconnectTimer = window.setTimeout(startLiveUpdates, 1500);
+      }
+    },
+  });
+  if (!pollTimer) {
+    pollTimer = window.setInterval(() => {
+      if (!getAppState().authenticated) return;
+      refreshState().catch((error) => {
+        if (error instanceof ApiError && error.status === 401) {
+          stopLiveUpdates();
+          setAuthenticated(false);
+        }
+      });
+    }, 1200);
+  }
+}
+
+bindControls({
+  refreshState,
+  onAuthenticated: startLiveUpdates,
+  onLogout: stopLiveUpdates,
+});
+
+async function bootstrap() {
+  try {
+    await currentUser();
+    setAuthenticated(true);
+    await refreshState();
+    startLiveUpdates();
+  } catch (error) {
+    stopLiveUpdates();
+    setAuthenticated(false);
+    if (!(error instanceof ApiError && error.status === 401)) {
+      showNotice(error.message || "任务台初始化失败", { error: true });
     }
-  });
-  return rows;
-}
-
-function render(payload) {
-  state.latest = payload;
-  const telemetry = payload.telemetry || {};
-  $("connectionState").textContent = payload.connected ? "在线" : "离线";
-  $("connectionState").className = `status ${payload.connected ? "status--online" : "status--offline"}`;
-  $("esp32State").textContent = valueText(telemetry.state);
-  $("paramVersion").textContent = `v${valueText(payload.params?.param_version)}`;
-  $("poseLabel").textContent = `${payload.maze?.position?.join(",") || "0,0"} ${payload.maze?.heading || "N"}`;
-  $("mazeMap").textContent = payload.maze?.ascii || "";
-  $("frontMm").textContent = valueText(telemetry.front_mm);
-  $("leftMm").textContent = valueText(telemetry.left_mm);
-  $("rightMm").textContent = valueText(telemetry.right_mm);
-  $("encLeft").textContent = valueText(telemetry.enc_left);
-  $("encRight").textContent = valueText(telemetry.enc_right);
-  $("pwmPair").textContent = `${valueText(telemetry.pwm_left)} / ${valueText(telemetry.pwm_right)}`;
-  $("lastAck").textContent = payload.last_ack ? `ACK ${payload.last_ack.seq ?? "-"}` : "ACK -";
-  $("currentAction").textContent = actionText(payload.current_action);
-  $("autoTuneToggle").checked = Boolean(payload.auto_tune_enabled);
-  renderParams(payload.params?.params || {});
-  renderTune(payload.logs || []);
-  renderLogs(payload.logs || []);
-}
-
-function actionText(action) {
-  if (!action) return "-";
-  const parts = [action.name || action.type || "-"];
-  if (action.action_id) parts.push(action.action_id);
-  if (action.type && action.type !== "action") parts.push(action.type);
-  if (action.code) parts.push(action.code);
-  return parts.join(" · ");
-}
-
-function renderParams(params) {
-  const tbody = $("paramTable");
-  const currentRows = flattenParams(params);
-  tbody.replaceChildren(
-    ...currentRows.map(([path, value]) => {
-      const tr = document.createElement("tr");
-      const name = document.createElement("td");
-      name.textContent = path;
-      const current = document.createElement("td");
-      current.textContent = valueText(value);
-      const next = document.createElement("td");
-      const input = document.createElement("input");
-      input.className = "param-input";
-      input.value = valueText(value);
-      input.dataset.path = path;
-      input.type = typeof value === "number" ? "number" : "text";
-      if (typeof value === "number" && !Number.isInteger(value)) input.step = "0.01";
-      if (typeof value === "number" && Number.isInteger(value)) input.step = "1";
-      next.append(input);
-      const action = document.createElement("td");
-      const button = document.createElement("button");
-      button.className = "param-save";
-      button.type = "button";
-      button.textContent = "下发";
-      button.addEventListener("click", () => saveParam(path, input.value, typeof value));
-      action.append(button);
-      tr.append(name, current, next, action);
-      return tr;
-    }),
-  );
-}
-
-function renderTune(logs) {
-  const lastTune = [...logs].reverse().find((row) => row.type === "param_change");
-  if (!lastTune) {
-    $("lastTuneReason").textContent = "-";
-    $("lastTuneChange").textContent = "-";
-    return;
   }
-  $("lastTuneReason").textContent = lastTune.payload?.source || "-";
-  $("lastTuneChange").textContent = JSON.stringify(lastTune.payload?.changes || {});
 }
 
-function renderLogs(logs) {
-  $("logCount").textContent = String(logs.length);
-  $("logList").replaceChildren(
-    ...logs.slice(-80).reverse().map((row) => {
-      const item = document.createElement("li");
-      item.textContent = `${new Date(row.ts_ms).toLocaleTimeString()} ${row.type} ${JSON.stringify(row.payload)}`;
-      return item;
-    }),
-  );
-}
-
-function coerceValue(raw, valueType) {
-  if (valueType === "number") {
-    return raw.includes(".") ? Number.parseFloat(raw) : Number.parseInt(raw, 10);
-  }
-  if (raw === "true") return true;
-  if (raw === "false") return false;
-  return raw;
-}
-
-async function saveParam(path, raw, valueType) {
-  const value = coerceValue(raw, valueType);
-  const response = await fetch("/api/params", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ updates: { [path]: value } }),
-  });
-  const payload = await response.json();
-  $("paramResult").textContent = response.ok ? `已下发 ${path}` : payload.detail || "失败";
-  await fetchState();
-}
-
-async function sendCommand(url, body = {}) {
-  const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  await response.json().catch(() => ({}));
-  await fetchState();
-}
-
-async function fetchState() {
-  const response = await fetch("/api/state");
-  if (!response.ok) return;
-  render(await response.json());
-}
-
-function connectSocket() {
-  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  const socket = new WebSocket(`${protocol}://${window.location.host}/ws`);
-  state.socket = socket;
-  socket.addEventListener("open", () => {
-    if (state.pingTimer) window.clearInterval(state.pingTimer);
-    state.pingTimer = window.setInterval(() => {
-      if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: "ping" }));
-    }, 300);
-  });
-  socket.addEventListener("message", (event) => {
-    const message = JSON.parse(event.data);
-    if (message.type === "state" || message.type === "pong") render(message.payload);
-  });
-  socket.addEventListener("close", () => {
-    if (state.pingTimer) window.clearInterval(state.pingTimer);
-    state.pingTimer = null;
-    window.setTimeout(connectSocket, 1500);
-  });
-}
-
-$("estopButton").addEventListener("click", () => sendCommand("/api/command/estop", { reason: "dashboard" }));
-$("stopButton").addEventListener("click", () => sendCommand("/api/command/stop", { reason: "dashboard" }));
-document.querySelectorAll("[data-action]").forEach((button) => {
-  button.addEventListener("click", () => sendCommand("/api/command/action", { name: button.dataset.action }));
-});
-$("autoTuneToggle").addEventListener("change", (event) => {
-  sendCommand("/api/auto-tune", { enabled: event.target.checked });
-});
-
-fetchState();
-connectSocket();
-window.setInterval(fetchState, 1200);
+bootstrap();

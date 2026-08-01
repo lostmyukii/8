@@ -297,7 +297,7 @@ Task 2 实施记录（2026-08-01）：
 - Create: `rdk_maze_tuner/tests/test_webots_physical_model.py`
 - Modify: `simulation/webots/maze_car/README.md`
 
-- [ ] **3.1 写 PROTO/world 静态失败测试**
+- [x] **3.1 写 PROTO/world 静态失败测试**
 
 解析文本合同，验证：
 
@@ -322,7 +322,7 @@ Run:
 
 Expected: RED，因为 PROTO 和两个物理 world 尚不存在。
 
-- [ ] **3.2 建立简化但稳定的碰撞模型**
+- [x] **3.2 建立简化但稳定的碰撞模型**
 
 PROTO 对外暴露：
 
@@ -343,7 +343,7 @@ controllerArgs
 视觉层表现蓝色底盘、两侧 TT 轮、上层电子板、前部摄像头和万向轮。
 碰撞层只使用稳定的 Box/Cylinder/Sphere，不使用复杂视觉网格。
 
-- [ ] **3.3 建立两个 world**
+- [x] **3.3 建立两个 world**
 
 `maze_physical_calibration.wbt`：
 
@@ -357,7 +357,7 @@ controllerArgs
 - 用于加载正式地图。
 - 包含普通地面和可选局部低摩擦碰撞区域。
 
-- [ ] **3.4 在服务器执行 P1 初验**
+- [x] **3.4 在服务器执行 P1 初验**
 
 用 Webots 无渲染运行静止 10 秒，记录：
 
@@ -369,9 +369,9 @@ controllerArgs
 
 首次目标只验证结构稳定，不调整 PID。
 
-- [ ] **3.5 运行完整回归**
+- [x] **3.5 运行完整回归**
 
-- [ ] **3.6 提交检查点**
+- [x] **3.6 提交检查点**
 
 ```text
 feat: add the physical Webots maze car model
@@ -382,6 +382,25 @@ P1 完成条件：
 - 静止 10 秒无明显漂移、倾覆或持续弹跳。
 - 两个主动轮和万向轮在画面中结构正确。
 - 正常动作路径尚未接入，但物理 world 可以稳定加载。
+
+Task 3 实施记录（2026-08-01）：
+
+- RED：5 个静态合同测试因 PROTO、两个物理 world 和控制器尚不存在而
+  全部失败。
+- 新增 `PhysicalMazeCar.proto`：两个主动轮铰链、两个电机与编码器、
+  前/左/右 ToF、IMU、陀螺仪、加速度计和前置被动万向轮；主体、两轮
+  和万向轮均使用独立基础碰撞体与 Physics。
+- 新增标定 world 和正式物理 world，明确使用 NUE（Y 轴向上）、8 ms
+  仿真步长、24 FPS、固定随机种子 20260801、左右轮独立接触材质以及
+  可碰撞的局部低摩擦区域。
+- 服务器使用 Webots R2025a 和软件渲染完成 10.008 秒无渲染稳定性初验：
+  水平漂移 0 m、垂直沉降 0.000011242 m、姿态变化 0.004738°、
+  最大垂直速度 0.000299947 m/s、最大倾角 0.004738°，未倾覆、未穿地。
+- 初验中先发现并修复 R2025a `inertiaMatrix` 类型、激光单光线约束以及
+  默认 ENU 坐标系导致的重力方向问题；没有以位姿写入掩盖物理错误。
+- 目标测试：5 passed。
+- 完整 Python 回归：191 passed；`compileall` 通过。
+- ESP32 PlatformIO 构建通过：RAM 6.9%，Flash 24.2%。
 
 ---
 

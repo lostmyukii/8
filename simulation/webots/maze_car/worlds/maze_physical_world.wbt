@@ -1,0 +1,134 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "../protos/PhysicalMazeCar.proto"
+
+WorldInfo {
+  basicTimeStep 8
+  FPS 24
+  randomSeed 20260801
+  optimalThreadCount 1
+  coordinateSystem "NUE"
+  contactProperties [
+    ContactProperties {
+      material1 "maze_floor_normal"
+      material2 "maze_tire_left"
+      coulombFriction [
+        0.9
+      ]
+      softERP 0.2
+      softCFM 0.0001
+    }
+    ContactProperties {
+      material1 "maze_floor_normal"
+      material2 "maze_tire_right"
+      coulombFriction [
+        0.9
+      ]
+      softERP 0.2
+      softCFM 0.0001
+    }
+    ContactProperties {
+      material1 "maze_floor_normal"
+      material2 "maze_caster"
+      coulombFriction [
+        0.08
+      ]
+      softERP 0.2
+      softCFM 0.0001
+    }
+    ContactProperties {
+      material1 "maze_floor_patch"
+      material2 "maze_tire_left"
+      coulombFriction [
+        0.28
+      ]
+      softERP 0.2
+      softCFM 0.0001
+    }
+    ContactProperties {
+      material1 "maze_floor_patch"
+      material2 "maze_tire_right"
+      coulombFriction [
+        0.28
+      ]
+      softERP 0.2
+      softCFM 0.0001
+    }
+    ContactProperties {
+      material1 "maze_floor_patch"
+      material2 "maze_caster"
+      coulombFriction [
+        0.05
+      ]
+      softERP 0.2
+      softCFM 0.0001
+    }
+  ]
+}
+Viewpoint {
+  orientation 1 0 0 -1.5708
+  position 0 3.9 0.15
+  fieldOfView 0.72
+}
+Background {
+  skyColor [
+    0.035 0.047 0.075
+  ]
+}
+DirectionalLight {
+  direction -0.3 -1 -0.2
+  intensity 1.25
+}
+Solid {
+  translation 0 -0.02 0
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.12 0.16 0.22
+        roughness 0.92
+        metalness 0
+      }
+      geometry Box {
+        size 5 0.04 5
+      }
+    }
+  ]
+  name "maze floor"
+  contactMaterial "maze_floor_normal"
+  boundingObject Box {
+    size 5 0.04 5
+  }
+}
+DEF LOW_FRICTION_PATCH Solid {
+  translation 0.625 0.001 -0.625
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.08 0.3 0.38
+        transparency 0.16
+        roughness 0.2
+        metalness 0.05
+      }
+      geometry Box {
+        size 0.5 0.002 0.5
+      }
+    }
+  ]
+  name "local low friction patch"
+  contactMaterial "maze_floor_patch"
+  boundingObject Box {
+    size 0.5 0.002 0.5
+  }
+}
+DEF MAZE_WALLS Group {
+  children [
+  ]
+}
+PhysicalMazeCar {
+  translation -0.875 0 0.875
+  controller "maze_physical_controller"
+  controllerArgs [
+    "--world=maze"
+  ]
+  supervisor TRUE
+}

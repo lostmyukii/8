@@ -1,0 +1,117 @@
+#VRML_SIM R2025a utf8
+
+EXTERNPROTO "../protos/PhysicalMazeCar.proto"
+
+WorldInfo {
+  basicTimeStep 8
+  FPS 24
+  randomSeed 20260801
+  optimalThreadCount 1
+  coordinateSystem "NUE"
+  contactProperties [
+    ContactProperties {
+      material1 "maze_floor_normal"
+      material2 "maze_tire_left"
+      coulombFriction [
+        0.9
+      ]
+      softERP 0.2
+      softCFM 0.0001
+    }
+    ContactProperties {
+      material1 "maze_floor_normal"
+      material2 "maze_tire_right"
+      coulombFriction [
+        0.9
+      ]
+      softERP 0.2
+      softCFM 0.0001
+    }
+    ContactProperties {
+      material1 "maze_floor_normal"
+      material2 "maze_caster"
+      coulombFriction [
+        0.08
+      ]
+      softERP 0.2
+      softCFM 0.0001
+    }
+  ]
+}
+Viewpoint {
+  orientation -0.436 0.873 0.218 1.42
+  position 1.05 1.15 1.05
+  fieldOfView 0.78
+}
+Background {
+  skyColor [
+    0.035 0.047 0.075
+  ]
+}
+DirectionalLight {
+  direction -0.3 -1 -0.2
+  intensity 1.25
+}
+Solid {
+  translation 0 -0.02 0
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.15 0.18 0.23
+        roughness 0.92
+        metalness 0
+      }
+      geometry Box {
+        size 3 0.04 3
+      }
+    }
+  ]
+  name "calibration floor"
+  contactMaterial "maze_floor_normal"
+  boundingObject Box {
+    size 3 0.04 3
+  }
+}
+Solid {
+  translation 0 0.001 -0.25
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 1 0.66 0.08
+        emissiveColor 0.25 0.1 0
+        roughness 0.65
+      }
+      geometry Box {
+        size 0.32 0.002 0.008
+      }
+    }
+  ]
+  name "250 mm calibration marker"
+}
+Solid {
+  translation 0.25 0.001 0
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.05 0.82 0.66
+        emissiveColor 0 0.18 0.12
+        roughness 0.65
+      }
+      geometry Box {
+        size 0.008 0.002 0.32
+      }
+    }
+  ]
+  name "90 degree turn marker"
+}
+PhysicalMazeCar {
+  translation 0 0 0
+  controller "maze_physical_controller"
+  controllerArgs [
+    "--world=calibration"
+    "--p1-stability"
+    "--p1-duration=10"
+    "--p1-report=/tmp/maze-p1-stability.json"
+  ]
+  supervisor TRUE
+}

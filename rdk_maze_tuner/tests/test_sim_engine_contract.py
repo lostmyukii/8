@@ -57,12 +57,25 @@ class FakeEngine:
         self.events.append(("close", None))
 
 
-def _read_lines(client: socket.socket) -> list[dict[str, Any]]:
-    client.settimeout(1.0)
-    payload = client.recv(4096)
+def _read_lines(
+    client: socket.socket,
+    *,
+    expected_count: int,
+) -> list[dict[str, Any]]:
+    client.settimeout(0.1)
+    deadline = time.monotonic() + 1.0
+    payload = bytearray()
+    while payload.count(b"\n") < expected_count and time.monotonic() < deadline:
+        try:
+            chunk = client.recv(4096)
+        except socket.timeout:
+            continue
+        if not chunk:
+            break
+        payload.extend(chunk)
     return [
         json.loads(line)
-        for line in payload.decode("utf-8").splitlines()
+        for line in bytes(payload).decode("utf-8").splitlines()
         if line
     ]
 
@@ -82,7 +95,7 @@ def test_server_notifies_connection_before_initial_frames_and_disconnect_once():
     try:
         server.poll(now_ms=100)
 
-        assert _read_lines(client) == [
+        assert _read_lines(client, expected_count=2) == [
             {"type": "ready", "fw": "fake-engine"},
             {"type": "telemetry", "state": "IDLE"},
         ]
@@ -119,7 +132,7 @@ def test_server_routes_newline_json_and_keeps_invalid_json_contract():
     client = socket.create_connection(server.listener.getsockname())
     try:
         server.poll(now_ms=0)
-        _read_lines(client)
+        _read_lines(client, expected_count=2)
         client.sendall(
             b'{"type":"heartbeat","seq":7}\n'
             b'not-json\n'
@@ -130,7 +143,7 @@ def test_server_routes_newline_json_and_keeps_invalid_json_contract():
             if any(event[0] == "handle" for event in engine.events):
                 break
             time.sleep(0.001)
-        replies = _read_lines(client)
+        replies = _read_lines(client, expected_count=2)
 
         assert replies[0] == {
             "type": "ack",

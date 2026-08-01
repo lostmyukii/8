@@ -93,6 +93,36 @@ PROTO PhysicalMazeCar [
           }
         ]
       }
+      # High-contrast top marker: the long stem and wide nose bar identify
+      # the physical front in streamed overview views. These shapes have no
+      # boundingObject or Physics node and therefore cannot change dynamics.
+      Transform {
+        translation 0 0.154 -0.038
+        children [
+          Shape {
+            appearance DEF HEADING_MARKER PBRAppearance {
+              baseColor 1 0.28 0.03
+              emissiveColor 0.28 0.045 0
+              roughness 0.38
+              metalness 0.04
+            }
+            geometry Box {
+              size 0.026 0.006 0.082
+            }
+          }
+        ]
+      }
+      Transform {
+        translation 0 0.154 -0.084
+        children [
+          Shape {
+            appearance USE HEADING_MARKER
+            geometry Box {
+              size 0.086 0.006 0.018
+            }
+          }
+        ]
+      }
       Transform {
         translation 0 0.112 -0.121
         children [

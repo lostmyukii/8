@@ -110,9 +110,11 @@ WorldInfo {
   ]
 }
 Viewpoint {
-  orientation 0 0 1 -1.5708
-  position 0 3.9 0.15
-  fieldOfView 0.72
+  orientation 0 0 1 -0.5
+  position -4.2 3 0
+  follow "physical_maze_car"
+  followType "Pan and Tilt Shot"
+  fieldOfView 0.78
 }
 Background {
   skyColor [

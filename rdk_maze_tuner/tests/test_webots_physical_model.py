@@ -75,6 +75,9 @@ def test_physical_proto_has_rigid_bodies_collision_and_passive_caster():
     assert "DEF WHEEL_MOTION_MARKER PBRAppearance" in text
     assert "appearance USE WHEEL_MOTION_MARKER" in text
     assert "baseColor 0.04 0.82 0.95" in text
+    assert "DEF HEADING_MARKER PBRAppearance" in text
+    assert "appearance USE HEADING_MARKER" in text
+    assert "baseColor 1 0.28 0.03" in text
     assert 'field SFString leftContactMaterial "maze_tire_left"' in text
     assert 'field SFString rightContactMaterial "maze_tire_right"' in text
     assert "contactMaterial IS leftContactMaterial" in text
@@ -124,8 +127,9 @@ def test_physical_worlds_use_eight_ms_step_and_real_collision_surfaces():
 
     maze = _read(MAZE_WORLD)
     assert re.search(
-        r"Viewpoint\s*\{\s*orientation 0 0 1 -1\.5708\s*"
-        r"position 0 3\.9 0\.15",
+        r"Viewpoint\s*\{\s*orientation 0 0 1 -0\.5\s*"
+        r"position -4\.2 3 0\s+follow \"physical_maze_car\"\s+"
+        r'followType "Pan and Tilt Shot"\s+fieldOfView 0\.78',
         maze,
     )
     assert "DEF MAZE_WALLS Group" in maze

@@ -1019,7 +1019,7 @@ P3/P4 完成条件：
 - Modify: `rdk_maze_tuner/tests/test_task_orchestrator.py`
 - Modify: `rdk_maze_tuner/tests/test_dashboard.py`
 
-- [ ] **9.1 写数据库和 repository 失败测试**
+- [x] **9.1 写数据库和 repository 失败测试**
 
 迁移新增：
 
@@ -1040,7 +1040,7 @@ runs.webots_version
 - run 开始后 profile 不可变。
 - profile 快照可从数据库恢复，不依赖未来被修改的 YAML。
 
-- [ ] **9.2 写模式适配器失败测试**
+- [x] **9.2 写模式适配器失败测试**
 
 仿真任务流程：
 
@@ -1058,7 +1058,7 @@ create task with physical_profile_id
 
 实车模式不得加载 Webots profile；若请求非空仿真 profile，必须明确拒绝或记录为不适用，不能悄悄当作实车参数。
 
-- [ ] **9.3 写任务预检失败测试**
+- [x] **9.3 写任务预检失败测试**
 
 - 默认仿真 profile 为 `normal-v1`。
 - `preflight()` 收到任务的 map/param/profile 上下文。
@@ -1080,7 +1080,7 @@ Run:
 
 Expected: RED，因为平台尚无物理 profile 资产。
 
-- [ ] **9.4 实现只读 profile API**
+- [x] **9.4 实现只读 profile API**
 
 ```text
 GET /api/physical-profiles
@@ -1090,7 +1090,7 @@ GET /api/physical-profiles/{id}
 第一版不提供网页任意编辑质量和摩擦；新 profile 必须通过受审查 YAML
 和独立提交加入，防止运行中静默改物理条件。
 
-- [ ] **9.5 扩展 task/run 合同**
+- [x] **9.5 扩展 task/run 合同**
 
 Task 和 run 记录：
 
@@ -1109,13 +1109,34 @@ Webots version
 平台 repository 复用 Task 1 的解析、校验和摘要实现，只增加 SQLite
 持久化和查询，不再实现第二套 YAML 规则。
 
-- [ ] **9.6 运行目标测试和完整回归**
+- [x] **9.6 运行目标测试和完整回归**
 
-- [ ] **9.7 提交检查点**
+- [x] **9.7 提交检查点**
 
 ```text
 feat: version physical simulation runs
 ```
+
+实施记录（2026-08-01）：
+
+- RED 阶段首先出现 `physical_profile_repository` 缺失的 collection
+  error；随后分别验证了不可变数据库、profile/map ACK、物理地图预检和
+  run 快照合同。
+- 迁移 003 新增 `physical_profiles` 和六个 run 身份字段；SQLite trigger
+  阻止 profile 更新/删除及 run 物理身份变更。同一 ID/摘要可幂等导入，
+  同一 ID 的不同内容明确冲突。
+- `SimulationModeAdapter` 按 `load_profile → load_map → reset → start`
+  顺序下发并验证双摘要；确定性旧后端明确返回
+  `PHYSICAL_BACKEND_REQUIRED`，实车模式明确返回
+  `PHYSICAL_PROFILE_NOT_APPLICABLE`。
+- map/profile 上下文在连接预检阶段计算 230 × 160 mm 底盘包络；不安全
+  地图保持在 `PREFLIGHT`、返回 `MAP_GEOMETRY_UNSAFE`，且不创建 run。
+- 仿真任务默认 `normal-v1`；任务、事件 metadata、SQLite run 和 run API
+  都暴露 profile ID/摘要/快照/种子及 controller/Webots 版本。
+- 只读 API `GET /api/physical-profiles` 与
+  `GET /api/physical-profiles/{id}` 已接入登录认证。
+- Task 9 目标回归 `43 passed`；完整 Python 回归 `308 passed`，
+  `compileall` 与 `git diff --check` 通过。
 
 ### Task 10：控制台物理参数、实时证据、成绩和回放
 

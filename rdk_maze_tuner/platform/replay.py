@@ -285,6 +285,11 @@ class ReplayService:
                 """
                 SELECT id, mode, status, map_version_id,
                        param_version_id, device_id,
+                       physical_profile_id,
+                       physical_profile_digest,
+                       physical_profile_snapshot_json,
+                       random_seed, controller_version,
+                       webots_version,
                        created_by_user_id, created_at_utc,
                        started_at_utc, ended_at_utc, metadata_json
                 FROM runs
@@ -296,6 +301,14 @@ class ReplayService:
             raise RunNotFoundError(f"run not found: {run_id}")
         result = dict(row)
         result["run_id"] = result.pop("id")
+        physical_snapshot = result.pop(
+            "physical_profile_snapshot_json"
+        )
+        result["physical_profile_snapshot"] = (
+            None
+            if physical_snapshot is None
+            else _json_object(physical_snapshot)
+        )
         result["metadata"] = _json_object(result.pop("metadata_json"))
         return result
 

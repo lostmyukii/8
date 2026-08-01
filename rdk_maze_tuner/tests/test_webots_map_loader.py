@@ -171,13 +171,17 @@ def test_simulation_adapter_loads_exact_saved_version_before_reset_and_start():
 
         def request_ack(self, message_type, **fields):
             self.calls.append((message_type, fields))
-            return {
+            response = {
                 "type": "ack",
                 "seq": len(self.calls),
                 "ok": True,
                 "map_version_id": fields.get("map_version_id"),
-                "digest": fields.get("digest"),
             }
+            if message_type == "load_map":
+                response["digest"] = fields.get("digest")
+            else:
+                response["map_digest"] = fields.get("map_digest")
+            return response
 
         def snapshot(self):
             return {
@@ -212,7 +216,7 @@ def test_simulation_adapter_loads_exact_saved_version_before_reset_and_start():
     started = adapter.start()
 
     assert reset["ack"]["map_version_id"] == "map-v3"
-    assert started["ack"]["digest"] == definition.content_digest
+    assert started["ack"]["map_digest"] == definition.content_digest
     assert session.calls == [
         (
             "load_map",
@@ -226,7 +230,7 @@ def test_simulation_adapter_loads_exact_saved_version_before_reset_and_start():
             "reset",
             {
                 "map_version_id": "map-v3",
-                "digest": definition.content_digest,
+                "map_digest": definition.content_digest,
                 "param_version": "param-v1",
             },
         ),
@@ -234,7 +238,7 @@ def test_simulation_adapter_loads_exact_saved_version_before_reset_and_start():
             "start",
             {
                 "map_version_id": "map-v3",
-                "digest": definition.content_digest,
+                "map_digest": definition.content_digest,
             },
         ),
     ]

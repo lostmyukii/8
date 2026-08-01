@@ -44,6 +44,7 @@ def create_tasks_router(
                 goal=body.get("goal"),
                 max_steps=body.get("max_steps", 500),
                 created_by_user_id=principal.user_id,
+                physical_profile_id=body.get("physical_profile_id"),
             )
         )
         leases.audit_operation(

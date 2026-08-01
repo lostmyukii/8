@@ -21,6 +21,7 @@ REQUIRED_TABLES = {
     "scores",
     "artifacts",
     "advisor_candidates",
+    "physical_profiles",
 }
 
 
@@ -49,7 +50,7 @@ def test_database_initializes_required_tables_and_is_repeatable(tmp_path):
     first_versions = database.initialize()
     second_versions = database.initialize()
 
-    assert first_versions == (1, 2)
+    assert first_versions == (1, 2, 3)
     assert second_versions == ()
 
     with database.connection() as connection:
@@ -67,7 +68,63 @@ def test_database_initializes_required_tables_and_is_repeatable(tmp_path):
     assert [(row["version"], row["name"]) for row in migrations] == [
         (1, "001_initial.sql"),
         (2, "002_auth_audit.sql"),
+        (3, "003_physical_profiles.sql"),
     ]
+
+
+def test_physical_run_identity_columns_are_immutable(tmp_path):
+    database = Database(tmp_path / "platform.sqlite3")
+    database.initialize()
+
+    with database.connection() as connection:
+        connection.execute(
+            """
+            INSERT INTO physical_profiles (
+                profile_id, digest, random_seed, snapshot_json,
+                created_at_utc
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                "normal-v1",
+                "a" * 64,
+                20260801,
+                '{"profile_id":"normal-v1"}',
+                "2026-08-01T00:00:00Z",
+            ),
+        )
+        connection.execute(
+            """
+            INSERT INTO runs (
+                id, mode, status, created_at_utc,
+                physical_profile_id, physical_profile_digest,
+                physical_profile_snapshot_json, random_seed,
+                controller_version, webots_version
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "run-physical",
+                "simulation",
+                "PREFLIGHT",
+                "2026-08-01T00:00:00Z",
+                "normal-v1",
+                "a" * 64,
+                '{"profile_id":"normal-v1"}',
+                20260801,
+                "0.2.0",
+                "R2025a",
+            ),
+        )
+
+    with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+        with database.connection() as connection:
+            connection.execute(
+                """
+                UPDATE runs
+                SET physical_profile_digest = ?
+                WHERE id = ?
+                """,
+                ("b" * 64, "run-physical"),
+            )
 
 
 def test_database_connections_enable_foreign_keys_wal_and_busy_timeout(tmp_path):

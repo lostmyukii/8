@@ -32,6 +32,9 @@ from rdk_maze_tuner.dashboard.routes.control import (
     create_control_router,
 )
 from rdk_maze_tuner.dashboard.routes.maps import create_maps_router
+from rdk_maze_tuner.dashboard.routes.physical_profiles import (
+    create_physical_profiles_router,
+)
 from rdk_maze_tuner.dashboard.routes.runs import create_runs_router
 from rdk_maze_tuner.dashboard.routes.tasks import create_tasks_router
 from rdk_maze_tuner.dashboard.state import DashboardState
@@ -53,6 +56,9 @@ from rdk_maze_tuner.platform.modes import (
     SimulationModeAdapter,
 )
 from rdk_maze_tuner.platform.map_repository import MapRepository
+from rdk_maze_tuner.platform.physical_profile_repository import (
+    PhysicalProfileRepository,
+)
 from rdk_maze_tuner.platform.replay import (
     ReplayService,
     RunFinalizer,
@@ -86,6 +92,9 @@ def create_app(
     login_rate_limiter: Optional[LoginRateLimiter] = None,
     task_orchestrator: Optional[TaskOrchestrator] = None,
     map_repository: Optional[MapRepository] = None,
+    physical_profile_repository: Optional[
+        PhysicalProfileRepository
+    ] = None,
     scoring_service: Optional[ScoringService] = None,
     replay_service: Optional[ReplayService] = None,
     retention_manager: Optional[RetentionManager] = None,
@@ -129,6 +138,11 @@ def create_app(
         database=resolved_database,
         artifacts_dir=platform_config.artifacts_dir,
     )
+    resolved_physical_profiles = (
+        physical_profile_repository
+        or PhysicalProfileRepository(database=resolved_database)
+    )
+    resolved_physical_profiles.sync_from_yaml()
     resolved_event_store = (
         task_orchestrator.event_store
         if task_orchestrator is not None
@@ -161,11 +175,17 @@ def create_app(
             SimulationModeAdapter(
                 session_factory=lambda _endpoint: coordinated_client,
                 map_provider=resolved_maps.get_version,
+                physical_profile_provider=(
+                    resolved_physical_profiles.get
+                ),
             )
             if coordinated_client is not None
             and client_mode == "simulation"
             else SimulationModeAdapter(
                 map_provider=resolved_maps.get_version,
+                physical_profile_provider=(
+                    resolved_physical_profiles.get
+                ),
             )
         )
         adapters = {
@@ -202,6 +222,7 @@ def create_app(
             adapters=adapters,
             runner_factory=runner_factory,
             run_finalizer=run_finalizer,
+            physical_profile_repository=resolved_physical_profiles,
         )
     else:
         resolved_tasks = task_orchestrator
@@ -226,6 +247,9 @@ def create_app(
     app.state.runtime = runtime
     app.state.task_orchestrator = resolved_tasks
     app.state.map_repository = resolved_maps
+    app.state.physical_profile_repository = (
+        resolved_physical_profiles
+    )
     app.state.scoring_service = resolved_scoring
     app.state.replay_service = resolved_replay
     app.state.retention_manager = resolved_retention
@@ -237,6 +261,12 @@ def create_app(
     )
     app.include_router(
         create_maps_router(auth_context, resolved_leases, resolved_maps)
+    )
+    app.include_router(
+        create_physical_profiles_router(
+            auth_context,
+            resolved_physical_profiles,
+        )
     )
     app.include_router(create_runs_router(auth_context, resolved_replay))
 

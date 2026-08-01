@@ -16,6 +16,11 @@ from rdk_maze_tuner.core.maze_runner import MazeStepResult
 from .database import Database
 from .event_store import EventStore
 from .modes import ModeAdapter
+from .physical_profile_repository import (
+    PhysicalProfileNotFoundError,
+    PhysicalProfileRepository,
+    StoredPhysicalProfile,
+)
 from .task_state import (
     InvalidTaskTransition,
     TaskStateMachine,
@@ -86,8 +91,14 @@ class TaskRecord:
     param_version: str
     goal: dict[str, Any]
     max_steps: int
+    physical_profile_id: str | None
+    physical_profile_digest: str | None
+    physical_profile_snapshot: dict[str, Any] | None
+    random_seed: int | None
     created_by_user_id: str | None
     created_at_utc: str
+    controller_version: str | None = None
+    webots_version: str | None = None
     machine: TaskStateMachine = field(default_factory=TaskStateMachine)
     control: TaskControl = field(default_factory=TaskControl)
     run_id: str | None = None
@@ -120,6 +131,9 @@ class TaskOrchestrator:
         run_finalizer: (
             Callable[[str], Mapping[str, Any] | None] | None
         ) = None,
+        physical_profile_repository: (
+            PhysicalProfileRepository | None
+        ) = None,
     ) -> None:
         self.database = database
         self.event_store = event_store
@@ -133,6 +147,11 @@ class TaskOrchestrator:
         )
         self.utc_now = utc_now or (lambda: datetime.now(UTC))
         self.run_finalizer = run_finalizer
+        self.physical_profile_repository = (
+            physical_profile_repository
+            or PhysicalProfileRepository(database=database)
+        )
+        self.physical_profile_repository.sync_from_yaml()
         self._condition = threading.Condition(threading.RLock())
         self._tasks: dict[str, TaskRecord] = {}
         self._closed = False
@@ -146,6 +165,7 @@ class TaskOrchestrator:
         goal: Mapping[str, Any],
         max_steps: int = 500,
         created_by_user_id: str | None = None,
+        physical_profile_id: str | None = None,
     ) -> dict[str, Any]:
         mode = str(mode)
         if mode not in self.adapters:
@@ -153,6 +173,10 @@ class TaskOrchestrator:
         map_version = _required_text(map_version, "map_version")
         param_version = _required_text(param_version, "param_version")
         normalized_goal = _normalize_goal(goal)
+        physical_profile = self._resolve_task_profile(
+            mode=mode,
+            physical_profile_id=physical_profile_id,
+        )
         if (
             not isinstance(max_steps, int)
             or isinstance(max_steps, bool)
@@ -171,6 +195,26 @@ class TaskOrchestrator:
                 param_version=param_version,
                 goal=normalized_goal,
                 max_steps=max_steps,
+                physical_profile_id=(
+                    None
+                    if physical_profile is None
+                    else physical_profile.profile_id
+                ),
+                physical_profile_digest=(
+                    None
+                    if physical_profile is None
+                    else physical_profile.digest
+                ),
+                physical_profile_snapshot=(
+                    None
+                    if physical_profile is None
+                    else physical_profile.to_dict()
+                ),
+                random_seed=(
+                    None
+                    if physical_profile is None
+                    else physical_profile.random_seed
+                ),
                 created_by_user_id=created_by_user_id,
                 created_at_utc=_utc_text(self.utc_now()),
             )
@@ -184,6 +228,11 @@ class TaskOrchestrator:
                     "param_version": param_version,
                     "goal": normalized_goal,
                     "max_steps": max_steps,
+                    "physical_profile_id": task.physical_profile_id,
+                    "physical_profile_digest": (
+                        task.physical_profile_digest
+                    ),
+                    "random_seed": task.random_seed,
                 },
             )
             return self._snapshot_locked(task)
@@ -212,8 +261,27 @@ class TaskOrchestrator:
             adapter = self.adapters[task.mode]
 
         try:
-            result = adapter.preflight()
+            result = adapter.preflight(
+                map_version=task.map_version,
+                param_version=task.param_version,
+                physical_profile_id=task.physical_profile_id,
+            )
             if result.get("ok") is not True:
+                if result.get("code") == "MAP_GEOMETRY_UNSAFE":
+                    with self._condition:
+                        task = self._task_locked(task_id)
+                        self._clear_operation_locked(
+                            task,
+                            "preflight",
+                        )
+                        task.preflight_result = dict(result)
+                        task.adapter_snapshot = adapter.snapshot()
+                        self._emit_locked(
+                            task,
+                            "task.preflight_blocked",
+                            result,
+                        )
+                        return self._snapshot_locked(task)
                 raise TaskOperationError(
                     str(result.get("code") or "PREFLIGHT_FAILED"),
                     str(result.get("message") or "preflight failed"),
@@ -231,6 +299,16 @@ class TaskOrchestrator:
             if task.machine.status is not TaskStatus.PREFLIGHT:
                 return self._snapshot_locked(task)
             task.preflight_result = dict(result)
+            task.controller_version = str(
+                result.get("controller_version")
+                or (result.get("ready") or {}).get("version")
+                or "unknown"
+            )
+            task.webots_version = str(
+                result.get("webots_version")
+                or (result.get("ready") or {}).get("webots_version")
+                or "not-applicable"
+            )
             task.adapter_snapshot = adapter.snapshot()
             self._emit_locked(task, "task.preflight_passed", result)
             return self._snapshot_locked(task)
@@ -265,6 +343,7 @@ class TaskOrchestrator:
             reset_result = adapter.reset(
                 map_version=task.map_version,
                 param_version=task.param_version,
+                physical_profile=task.physical_profile_snapshot,
             )
             runner = self.runner_factory(task)
         except Exception as exc:
@@ -472,6 +551,11 @@ class TaskOrchestrator:
                 )
             if mode not in self.adapters:
                 raise TaskValidationError(f"unsupported task mode: {mode}")
+            if mode == "real" and task.physical_profile_id is not None:
+                raise TaskValidationError(
+                    "create a real-mode task without a Webots physical "
+                    "profile instead of switching this simulation task"
+                )
             task.mode = mode
             self._emit_locked(task, "task.mode_changed", {"mode": mode})
             return self._snapshot_locked(task)
@@ -931,6 +1015,16 @@ class TaskOrchestrator:
                 "param_version": task.param_version,
                 "goal": task.goal,
                 "max_steps": task.max_steps,
+                "physical_profile_id": task.physical_profile_id,
+                "physical_profile_digest": (
+                    task.physical_profile_digest
+                ),
+                "physical_profile_snapshot": (
+                    task.physical_profile_snapshot
+                ),
+                "random_seed": task.random_seed,
+                "controller_version": task.controller_version,
+                "webots_version": task.webots_version,
             },
             ensure_ascii=False,
             separators=(",", ":"),
@@ -941,8 +1035,11 @@ class TaskOrchestrator:
                 """
                 INSERT INTO runs (
                     id, mode, status, created_by_user_id,
-                    created_at_utc, metadata_json
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                    created_at_utc, metadata_json,
+                    physical_profile_id, physical_profile_digest,
+                    physical_profile_snapshot_json, random_seed,
+                    controller_version, webots_version
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
@@ -951,6 +1048,22 @@ class TaskOrchestrator:
                     task.created_by_user_id,
                     _utc_text(self.utc_now()),
                     metadata,
+                    task.physical_profile_id,
+                    task.physical_profile_digest,
+                    (
+                        None
+                        if task.physical_profile_snapshot is None
+                        else json.dumps(
+                            task.physical_profile_snapshot,
+                            ensure_ascii=False,
+                            allow_nan=False,
+                            separators=(",", ":"),
+                            sort_keys=True,
+                        )
+                    ),
+                    task.random_seed,
+                    task.controller_version,
+                    task.webots_version,
                 ),
             )
 
@@ -1077,6 +1190,14 @@ class TaskOrchestrator:
             "mode": task.mode,
             "map_version": task.map_version,
             "param_version": task.param_version,
+            "physical_profile_id": task.physical_profile_id,
+            "physical_profile_digest": task.physical_profile_digest,
+            "physical_profile_snapshot": _json_ready(
+                task.physical_profile_snapshot
+            ),
+            "random_seed": task.random_seed,
+            "controller_version": task.controller_version,
+            "webots_version": task.webots_version,
             "goal": _json_ready(task.goal),
             "max_steps": task.max_steps,
             "step_count": task.step_count,
@@ -1093,6 +1214,26 @@ class TaskOrchestrator:
             "archive_error": task.archive_error,
             **state,
         }
+
+    def _resolve_task_profile(
+        self,
+        *,
+        mode: str,
+        physical_profile_id: str | None,
+    ) -> StoredPhysicalProfile | None:
+        requested = str(physical_profile_id or "").strip()
+        if mode == "real":
+            if requested:
+                raise TaskValidationError(
+                    "Webots physical profiles are not applicable to "
+                    "real-mode tasks"
+                )
+            return None
+        profile_id = requested or "normal-v1"
+        try:
+            return self.physical_profile_repository.get(profile_id)
+        except PhysicalProfileNotFoundError as exc:
+            raise TaskValidationError(str(exc)) from exc
 
     def _task_locked(self, task_id: str) -> TaskRecord:
         task = self._tasks.get(str(task_id))

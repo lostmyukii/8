@@ -17,7 +17,13 @@ class ModeAdapter(ABC):
     mode: str
 
     @abstractmethod
-    def preflight(self) -> dict[str, Any]:
+    def preflight(
+        self,
+        *,
+        map_version: str | None = None,
+        param_version: str | None = None,
+        physical_profile_id: str | None = None,
+    ) -> dict[str, Any]:
         ...
 
     @abstractmethod
@@ -26,6 +32,7 @@ class ModeAdapter(ABC):
         *,
         map_version: str,
         param_version: str,
+        physical_profile: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         ...
 

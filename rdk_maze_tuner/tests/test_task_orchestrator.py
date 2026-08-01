@@ -18,12 +18,18 @@ from rdk_maze_tuner.platform.auth import AuthService
 from rdk_maze_tuner.platform.control_lease import ControlLeaseService
 from rdk_maze_tuner.platform.database import Database
 from rdk_maze_tuner.platform.event_store import EventStore
+from rdk_maze_tuner.platform.physical_profile_repository import (
+    PhysicalProfileRepository,
+)
 from rdk_maze_tuner.platform.task_orchestrator import (
     TaskConflictError,
     TaskOrchestrator,
 )
 from rdk_maze_tuner.platform.task_state import TaskStatus
-from rdk_maze_tuner.platform.modes import SimulationModeAdapter
+from rdk_maze_tuner.platform.modes import (
+    ModeAdapterError,
+    SimulationModeAdapter,
+)
 from simulation.webots.maze_car.controllers.maze_sim_controller.sim_engine import (
     MazeSimEngine,
 )
@@ -41,18 +47,31 @@ class FakeModeAdapter:
         self.calls = []
         self.connected = False
 
-    def preflight(self):
-        self.calls.append(("preflight", {}))
+    def preflight(self, **context):
+        self.calls.append(("preflight", context))
         self.connected = True
-        return {"ok": True, "mode": self.mode, "code": "READY"}
+        return {
+            "ok": True,
+            "mode": self.mode,
+            "code": "READY",
+            "controller_version": "0.2.0",
+            "webots_version": "R2025a",
+        }
 
-    def reset(self, *, map_version, param_version):
+    def reset(
+        self,
+        *,
+        map_version,
+        param_version,
+        physical_profile=None,
+    ):
         self.calls.append(
             (
                 "reset",
                 {
                     "map_version": map_version,
                     "param_version": param_version,
+                    "physical_profile": physical_profile,
                 },
             )
         )
@@ -139,6 +158,8 @@ class DisconnectingRunner:
 def make_orchestrator(tmp_path, runners, *, run_finalizer=None):
     database = Database(tmp_path / "platform.sqlite3")
     database.initialize()
+    physical_profiles = PhysicalProfileRepository(database=database)
+    physical_profiles.sync_from_yaml()
     events = EventStore(
         database=database,
         runs_dir=tmp_path / "runs",
@@ -156,6 +177,7 @@ def make_orchestrator(tmp_path, runners, *, run_finalizer=None):
         run_id_factory=lambda: next(run_ids),
         utc_now=lambda: datetime(2026, 8, 1, 12, 0, tzinfo=UTC),
         run_finalizer=run_finalizer,
+        physical_profile_repository=physical_profiles,
     )
     return database, events, adapter, orchestrator
 
@@ -208,6 +230,89 @@ def test_orchestrator_runs_to_goal_and_persists_structured_events(tmp_path):
     assert row["status"] == "COMPLETED"
     assert row["started_at_utc"] is not None
     assert row["ended_at_utc"] is not None
+
+
+def test_simulation_task_defaults_profile_and_run_freezes_exact_snapshot(
+    tmp_path,
+):
+    database, events, adapter, orchestrator = make_orchestrator(
+        tmp_path,
+        [ScriptedRunner(["goal_reached"])],
+    )
+    created = orchestrator.create_task(
+        mode="simulation",
+        map_version="map-v1",
+        param_version="param-v1",
+        goal={"type": "cell", "cell": [0, 1]},
+    )
+
+    assert created["physical_profile_id"] == "normal-v1"
+    assert created["physical_profile_digest"]
+    assert created["random_seed"] == 20260801
+    preflight = orchestrator.preflight(created["task_id"])
+    ready = orchestrator.reset(created["task_id"])
+
+    assert preflight["preflight"]["controller_version"] == "0.2.0"
+    assert ready["physical_profile_snapshot"]["profile_id"] == "normal-v1"
+    assert adapter.calls[0][1]["physical_profile_id"] == "normal-v1"
+    assert adapter.calls[1][1]["physical_profile"]["digest"] == (
+        created["physical_profile_digest"]
+    )
+    with database.connection() as connection:
+        row = connection.execute(
+            """
+            SELECT
+                physical_profile_id, physical_profile_digest,
+                physical_profile_snapshot_json, random_seed,
+                controller_version, webots_version
+            FROM runs
+            WHERE id = ?
+            """,
+            (ready["run_id"],),
+        ).fetchone()
+    assert row["physical_profile_id"] == "normal-v1"
+    assert row["physical_profile_digest"] == created["physical_profile_digest"]
+    assert json.loads(row["physical_profile_snapshot_json"])[
+        "profile_id"
+    ] == "normal-v1"
+    assert row["random_seed"] == 20260801
+    assert row["controller_version"] == "0.2.0"
+    assert row["webots_version"] == "R2025a"
+
+
+def test_unsafe_physical_map_stays_at_preflight_without_creating_run(
+    tmp_path,
+):
+    database, _events, adapter, orchestrator = make_orchestrator(
+        tmp_path,
+        [ScriptedRunner(["goal_reached"])],
+    )
+    adapter.preflight = lambda **_context: {
+        "ok": False,
+        "mode": "simulation",
+        "code": "MAP_GEOMETRY_UNSAFE",
+        "message": "physical passage is unsafe",
+        "physical_preflight": {
+            "actual_passage_x_mm": 280.0,
+            "actual_passage_y_mm": 280.0,
+        },
+    }
+    created = orchestrator.create_task(
+        mode="simulation",
+        map_version="unsafe-v1",
+        param_version="param-v1",
+        goal={"type": "cell", "cell": [0, 1]},
+    )
+
+    blocked = orchestrator.preflight(created["task_id"])
+
+    assert blocked["status"] == "PREFLIGHT"
+    assert blocked["preflight"]["code"] == "MAP_GEOMETRY_UNSAFE"
+    assert blocked["run_id"] is None
+    with database.connection() as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM runs"
+        ).fetchone()[0] == 0
 
 
 def test_completed_task_records_media_incomplete_archive_without_failing(
@@ -418,7 +523,7 @@ def test_running_device_disconnect_becomes_lost_not_error(tmp_path):
     )
 
 
-def test_sim_engine_task_runs_from_start_to_completed(tmp_path):
+def test_deterministic_sim_engine_is_rejected_for_physical_task(tmp_path):
     engine = MazeSimEngine()
     server = SimProtocolServer(engine, port=0)
     port = server.listener.getsockname()[1]
@@ -478,23 +583,12 @@ def test_sim_engine_task_runs_from_start_to_completed(tmp_path):
             goal={"type": "cell", "cell": [0, 1]},
             max_steps=10,
         )
-        orchestrator.preflight(task["task_id"])
-        ready = orchestrator.reset(task["task_id"])
-        orchestrator.start(task["task_id"])
-        completed = orchestrator.wait_for_state(
-            task["task_id"],
-            {TaskStatus.COMPLETED},
-            timeout_s=3.0,
-        )
-
-        assert ready["run_id"] == "run-sim"
-        assert completed["step_count"] == 1
-        assert completed["last_step"]["outcome"] == "goal_reached"
-        assert engine.cell == (0, 3)
-        assert any(
-            event["type"] == "task.completed"
-            for event in events.list_events("run-sim")
-        )
+        with pytest.raises(
+            ModeAdapterError,
+            match="PHYSICAL_BACKEND_REQUIRED",
+        ):
+            orchestrator.preflight(task["task_id"])
+        assert orchestrator.snapshot(task["task_id"])["status"] == "ERROR"
     finally:
         orchestrator.close()
         stopped.set()

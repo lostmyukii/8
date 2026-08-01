@@ -14,7 +14,18 @@ DEVICE_OFFLINE_MESSAGE = "RDK X3 Agent is offline"
 class RealModeAdapter(ModeAdapter):
     mode = "real"
 
-    def preflight(self) -> dict[str, Any]:
+    def preflight(
+        self,
+        *,
+        map_version: str | None = None,
+        param_version: str | None = None,
+        physical_profile_id: str | None = None,
+    ) -> dict[str, Any]:
+        if physical_profile_id:
+            raise ModeAdapterError(
+                "PHYSICAL_PROFILE_NOT_APPLICABLE",
+                "Webots physical profiles cannot be used in real mode",
+            )
         return {
             "ok": False,
             "mode": self.mode,
@@ -27,7 +38,13 @@ class RealModeAdapter(ModeAdapter):
         *,
         map_version: str,
         param_version: str,
+        physical_profile: dict[str, Any] | None = None,
     ) -> NoReturn:
+        if physical_profile is not None:
+            raise ModeAdapterError(
+                "PHYSICAL_PROFILE_NOT_APPLICABLE",
+                "Webots physical profiles cannot be used in real mode",
+            )
         self._offline()
 
     def start(self) -> NoReturn:

@@ -463,6 +463,9 @@ def test_release_deployment_validates_caddy_and_local_https_vhost():
     assert "systemctl reload caddy.service" in deploy
     assert "--resolve" in deploy
     assert "127.0.0.1" in deploy
+    health_failure = deploy[deploy.index("if ! wait_http") :]
+    assert "false" in health_failure
+    assert "exit 1" not in health_failure
 
     installer = Path("deploy/server/install_host.sh").read_text(
         encoding="utf-8"

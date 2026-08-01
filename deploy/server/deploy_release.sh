@@ -267,7 +267,8 @@ if ! wait_http http://127.0.0.1:8000/ 60 ||
   systemctl --no-pager --full status \
     maze-webots-stream.service \
     maze-dashboard.service || true
-  exit 1
+  echo "Release health checks failed." >&2
+  false
 fi
 
 trap - ERR

@@ -15,6 +15,7 @@ from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconn
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
+from rdk_maze_tuner.core.device_session import DeviceSession
 from rdk_maze_tuner.core.param_manager import ParamManager, ParamValidationError
 from rdk_maze_tuner.core.serial_client import SerialClient, SerialClientError, open_serial
 from rdk_maze_tuner.core.tcp_stream import open_tcp
@@ -53,7 +54,7 @@ def create_app(
     *,
     params_path: Path = DEFAULT_PARAMS,
     limits_path: Path = DEFAULT_LIMITS,
-    client: Optional[SerialClient] = None,
+    client: Optional[SerialClient | DeviceSession] = None,
     state: Optional[DashboardState] = None,
     database: Optional[Database] = None,
     auth_service: Optional[AuthService] = None,
@@ -80,7 +81,17 @@ def create_app(
         rate_limiter=login_rate_limiter or LoginRateLimiter(),
     )
     params = ParamManager(params_path=params_path, limits_path=limits_path)
-    dashboard_state = state or DashboardState(params=params, client=client)
+    coordinated_client = (
+        client
+        if isinstance(client, DeviceSession)
+        else DeviceSession(client)
+        if client is not None
+        else None
+    )
+    dashboard_state = state or DashboardState(
+        params=params,
+        client=coordinated_client,
+    )
     runtime = SerialDashboardRuntime(state=dashboard_state)
 
     @asynccontextmanager

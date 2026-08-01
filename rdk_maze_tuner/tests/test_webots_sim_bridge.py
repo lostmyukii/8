@@ -1,6 +1,7 @@
 import threading
 import time
 
+from rdk_maze_tuner.core.device_session import DeviceSession
 from rdk_maze_tuner.core.serial_client import SerialClient
 from rdk_maze_tuner.core.tcp_stream import open_tcp
 from simulation.webots.maze_car.controllers.maze_sim_controller.sim_engine import MazeSimEngine
@@ -123,6 +124,42 @@ def test_tcp_bridge_runs_existing_serial_client_contract():
         assert done["simulated"] is True
     finally:
         stream.close()
+        stopped.set()
+        thread.join(timeout=1.0)
+        server.close()
+
+
+def test_tcp_bridge_runs_through_single_reader_device_session():
+    engine = MazeSimEngine()
+    server = SimProtocolServer(engine, port=0)
+    port = server.listener.getsockname()[1]
+    stopped = threading.Event()
+    started = time.monotonic()
+
+    def serve():
+        while not stopped.is_set():
+            server.poll(now_ms=int((time.monotonic() - started) * 1000))
+            time.sleep(0.002)
+
+    thread = threading.Thread(target=serve, daemon=True)
+    thread.start()
+    stream = open_tcp(f"127.0.0.1:{port}", read_timeout_s=0.01)
+    session = DeviceSession(SerialClient(stream, timeout_s=2.0))
+    try:
+        session.start()
+        assert session.wait_ready()["fw"] == "maze-webots-sim"
+        assert session.send_heartbeat(ts_ms=123456)["ok"] is True
+        done = session.execute_action(
+            action_id="session-integration-0001",
+            name="move_cell",
+            speed=0.25,
+            target_ticks=1350,
+        )
+        assert done["type"] == "done"
+        assert done["action_id"] == "session-integration-0001"
+        assert session.last_telemetry["simulated"] is True
+    finally:
+        session.close()
         stopped.set()
         thread.join(timeout=1.0)
         server.close()

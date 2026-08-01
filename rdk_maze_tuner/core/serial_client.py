@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from threading import Lock
 from typing import Any, Callable, Dict, Mapping, Optional, Protocol
 
 from .protocol import (
@@ -50,6 +51,10 @@ class SerialClient:
         self._clock = clock
         self._sleep = sleep
         self._seq = 0
+        self._seq_lock = Lock()
+        self._write_lock = Lock()
+        self._reader_lock = Lock()
+        self._reader_owner: object | None = None
         self.last_telemetry: Optional[Message] = None
 
     def wait_ready(self, *, timeout_s: Optional[float] = None) -> Message:
@@ -102,7 +107,22 @@ class SerialClient:
         self._send(build_estop(seq=seq, reason=reason))
         return self._wait_for_ack(seq)
 
-    def read_message(self) -> Optional[Message]:
+    def claim_reader(self, owner: object) -> None:
+        """Give one coordinator exclusive ownership of transport reads."""
+        with self._reader_lock:
+            if self._reader_owner is not None and self._reader_owner is not owner:
+                raise SerialClientError("transport reader is already owned by another DeviceSession")
+            self._reader_owner = owner
+
+    def release_reader(self, owner: object) -> None:
+        with self._reader_lock:
+            if self._reader_owner is owner:
+                self._reader_owner = None
+
+    def read_message(self, *, owner: object | None = None) -> Optional[Message]:
+        with self._reader_lock:
+            if self._reader_owner is not None and self._reader_owner is not owner:
+                raise SerialClientError("transport reader is owned by DeviceSession")
         line = self.stream.readline()
         if not line:
             return None
@@ -111,13 +131,24 @@ class SerialClient:
             self.last_telemetry = message
         return message
 
+    def send_message(self, message: Mapping[str, Any]) -> None:
+        """Write one frame without reading its response."""
+        payload = encode_message(message)
+        with self._write_lock:
+            self.stream.write(payload)
+            self.stream.flush()
+
+    def next_seq(self) -> int:
+        """Reserve a command sequence number safely across caller threads."""
+        with self._seq_lock:
+            self._seq += 1
+            return self._seq
+
     def _send(self, message: Mapping[str, Any]) -> None:
-        self.stream.write(encode_message(message))
-        self.stream.flush()
+        self.send_message(message)
 
     def _next_seq(self) -> int:
-        self._seq += 1
-        return self._seq
+        return self.next_seq()
 
     def _wait_for_ack(self, seq: int) -> Message:
         deadline = self._clock() + self.timeout_s

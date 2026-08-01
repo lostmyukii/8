@@ -12,7 +12,8 @@ from typing import Any, Callable, Deque, Mapping, Optional
 
 from rdk_maze_tuner.core.maze_map import MazeMap, PlannedAction
 from rdk_maze_tuner.core.param_manager import ParamManager, ParamValidationError
-from rdk_maze_tuner.core.serial_client import SerialClient, SerialClientError
+from rdk_maze_tuner.core.device_session import DeviceSession
+from rdk_maze_tuner.core.serial_client import SerialClientError
 
 
 DEFAULT_TELEMETRY = {
@@ -34,7 +35,7 @@ class DashboardState:
         *,
         params: ParamManager,
         maze: Optional[MazeMap] = None,
-        client: Optional[SerialClient] = None,
+        client: Optional[DeviceSession] = None,
         max_logs: int = 200,
         clock_ms: Optional[Callable[[], int]] = None,
     ) -> None:
@@ -53,7 +54,9 @@ class DashboardState:
 
     @property
     def connected(self) -> bool:
-        return self.client is not None
+        if self.client is None:
+            return False
+        return bool(getattr(self.client, "connected", True))
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
@@ -74,21 +77,32 @@ class DashboardState:
             self.telemetry.update(dict(telemetry))
             self.record("telemetry", self.telemetry)
 
-    def read_serial_once(self) -> Optional[dict[str, Any]]:
+    def handle_device_message(
+        self,
+        message: Mapping[str, Any],
+    ) -> dict[str, Any]:
         with self._lock:
-            if self.client is None:
-                return None
-            message = self.client.read_message()
-            if message is None:
-                return None
             self._handle_serial_message_locked(message)
             return dict(message)
 
-    def send_heartbeat(self) -> dict[str, Any]:
+    def handle_device_disconnect(self, message: str) -> dict[str, Any]:
+        event = {
+            "type": "error",
+            "code": "DEVICE_DISCONNECTED",
+            "message": message,
+        }
         with self._lock:
-            if self.client is None:
-                return {"ok": False, "sent_to_esp32": False, "ack": None}
-            ack = self.client.send_heartbeat(ts_ms=self._clock_ms())
+            self.telemetry["state"] = "OFFLINE"
+            self.current_action = event
+            self.record("error", event)
+        return event
+
+    def send_heartbeat(self) -> dict[str, Any]:
+        client = self.client
+        if client is None:
+            return {"ok": False, "sent_to_esp32": False, "ack": None}
+        ack = client.send_heartbeat(ts_ms=self._clock_ms())
+        with self._lock:
             self.last_ack = dict(ack)
             row = self.record("heartbeat", {"sent_to_esp32": True, "ack": ack})
             return {"ok": True, "sent_to_esp32": True, "ack": _json_ready(ack), "log": row}
@@ -99,12 +113,18 @@ class DashboardState:
 
         with self._lock:
             event = self.params.apply_updates(dict(updates), source="dashboard")
-            ack = None
-            sent = False
-            if self.client is not None:
-                ack = self.client.send_params(self.params.esp32_params())
+            params_for_device = self.params.esp32_params()
+            client = self.client
+
+        ack = None
+        sent = False
+        if client is not None:
+            ack = client.send_params(params_for_device)
+            sent = True
+
+        with self._lock:
+            if ack is not None:
                 self.last_ack = dict(ack)
-                sent = True
                 self.record("ack", ack)
             self.last_param_event = event
             self.record("param_change", event)
@@ -143,33 +163,26 @@ class DashboardState:
             }
             self.current_action = command
             self.record("planned_action", command)
-            if self.client is None:
-                return {
-                    "ok": False,
-                    "command": name,
-                    "action_id": action_id,
-                    "sent_to_esp32": False,
-                    "ack": None,
-                    "result": None,
-                }
+            client = self.client
+        if client is None:
+            return {
+                "ok": False,
+                "command": name,
+                "action_id": action_id,
+                "sent_to_esp32": False,
+                "ack": None,
+                "result": None,
+            }
 
-            try:
-                if hasattr(self.client, "execute_action_with_ack"):
-                    ack, result = self.client.execute_action_with_ack(
-                        action_id=action_id,
-                        name=name,
-                        speed=speed,
-                        target_ticks=target_ticks,
-                    )
-                else:
-                    result = self.client.execute_action(
-                        action_id=action_id,
-                        name=name,
-                        speed=speed,
-                        target_ticks=target_ticks,
-                    )
-                    ack = None
-            except SerialClientError as exc:
+        try:
+            ack, result = client.execute_action_with_ack(
+                action_id=action_id,
+                name=name,
+                speed=speed,
+                target_ticks=target_ticks,
+            )
+        except SerialClientError as exc:
+            with self._lock:
                 result = {
                     "type": "error",
                     "action_id": action_id,
@@ -188,6 +201,7 @@ class DashboardState:
                     "result": result,
                 }
 
+        with self._lock:
             if ack is not None:
                 self.last_ack = dict(ack)
                 self.record("ack", ack)
@@ -216,18 +230,21 @@ class DashboardState:
             }
 
     def _send_control_command(self, name: str, *, reason: str) -> dict[str, Any]:
+        client = self.client
+        ack = None
+        sent = False
+        if client is not None:
+            if name == "estop":
+                ack = client.estop(reason=reason)
+            elif name == "stop":
+                ack = client.stop()
+            else:
+                raise SerialClientError(f"unsupported control command: {name}")
+            sent = True
+
         with self._lock:
-            ack = None
-            sent = False
-            if self.client is not None:
-                if name == "estop":
-                    ack = self.client.estop(reason=reason)
-                elif name == "stop":
-                    ack = self.client.stop()
-                else:
-                    raise SerialClientError(f"unsupported control command: {name}")
+            if ack is not None:
                 self.last_ack = dict(ack)
-                sent = True
                 self.record("ack", ack)
             command = {
                 "name": name,

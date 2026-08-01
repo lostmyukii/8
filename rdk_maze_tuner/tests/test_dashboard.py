@@ -1,8 +1,12 @@
+from collections import deque
+import threading
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
+from rdk_maze_tuner.core.device_session import DeviceSession
+from rdk_maze_tuner.core.serial_client import SerialClient
 from rdk_maze_tuner.dashboard.app import build_parser, create_app
 from rdk_maze_tuner.dashboard.runtime import SerialDashboardRuntime
 from rdk_maze_tuner.dashboard.state import DashboardState
@@ -18,9 +22,11 @@ TEST_PASSWORD = "correct horse battery staple"
 
 class FakeDashboardClient:
     def __init__(self, messages=None):
-        self.messages = list(messages or [])
+        self.messages = deque(messages or [])
         self.heartbeats = []
         self.actions = []
+        self.started = False
+        self.closed = False
         self.action_result = {
             "type": "done",
             "action_id": "dashboard-0001",
@@ -32,10 +38,18 @@ class FakeDashboardClient:
         }
         self.action_ack = {"type": "ack", "seq": 99, "ok": True}
 
-    def read_message(self):
-        if not self.messages:
-            return None
-        return self.messages.pop(0)
+    @property
+    def connected(self):
+        return not self.closed
+
+    def start(self):
+        self.started = True
+
+    def subscribe(self, *, message_types=None):
+        return FakeSubscription(self.messages, message_types=message_types)
+
+    def close(self):
+        self.closed = True
 
     def send_heartbeat(self, *, ts_ms=None):
         self.heartbeats.append(ts_ms)
@@ -54,6 +68,63 @@ class FakeDashboardClient:
         result["action_id"] = action_id
         result["name"] = name
         return self.action_ack, result
+
+
+class FakeSubscription:
+    def __init__(self, messages, *, message_types=None):
+        self.messages = messages
+        self.message_types = (
+            None if message_types is None else frozenset(message_types)
+        )
+        self.closed = False
+
+    def get(self, *, timeout_s=0.0):
+        while self.messages:
+            message = self.messages.popleft()
+            if (
+                self.message_types is None
+                or message.get("type") in self.message_types
+            ):
+                return message
+        return None
+
+    def close(self):
+        self.closed = True
+
+
+class BlockingDashboardClient(FakeDashboardClient):
+    def __init__(self):
+        super().__init__()
+        self.action_started = threading.Event()
+        self.release_action = threading.Event()
+
+    def execute_action_with_ack(
+        self,
+        *,
+        action_id,
+        name,
+        speed,
+        target_ticks,
+    ):
+        self.action_started.set()
+        assert self.release_action.wait(timeout=1.0)
+        return super().execute_action_with_ack(
+            action_id=action_id,
+            name=name,
+            speed=speed,
+            target_ticks=target_ticks,
+        )
+
+
+class PassiveSerial:
+    def write(self, data):
+        return len(data)
+
+    def flush(self):
+        return None
+
+    def readline(self):
+        return b""
 
 
 def make_state(client=None):
@@ -100,7 +171,7 @@ def make_authenticated_client(tmp_path):
     return client
 
 
-def make_test_app(tmp_path):
+def make_test_app(tmp_path, *, client=None):
     from argon2 import PasswordHasher
 
     database = Database(tmp_path / "platform.sqlite3")
@@ -113,7 +184,11 @@ def make_test_app(tmp_path):
             parallelism=1,
         ),
     )
-    return create_app(database=database, auth_service=auth)
+    return create_app(
+        database=database,
+        auth_service=auth,
+        client=client,
+    )
 
 
 def test_dashboard_serves_workspace_with_estop_control(tmp_path):
@@ -139,6 +214,15 @@ def test_dashboard_state_contains_params_map_and_logs(tmp_path):
     assert payload["maze"]["position"] == [0, 0]
     assert payload["auto_tune_enabled"] is True
     assert isinstance(payload["logs"], list)
+
+
+def test_dashboard_wraps_raw_serial_client_in_single_reader_session(tmp_path):
+    raw_client = SerialClient(PassiveSerial(), timeout_s=0.01)
+
+    app = make_test_app(tmp_path, client=raw_client)
+
+    assert isinstance(app.state.dashboard.client, DeviceSession)
+    assert app.state.dashboard.client.client is raw_client
 
 
 def test_dashboard_param_update_validates_and_records_change(tmp_path):
@@ -190,23 +274,23 @@ def test_dashboard_websocket_sends_initial_state_snapshot(tmp_path):
     assert payload["payload"]["maze"]["position"] == [0, 0]
 
 
-def test_serial_runtime_poll_once_updates_telemetry_and_logs_done():
+def test_serial_runtime_poll_once_uses_subscription_for_status_messages():
     fake_client = FakeDashboardClient(
         [
             {"type": "telemetry", "state": "IDLE", "front_mm": 240, "left_mm": 180, "right_mm": 300},
-            {"type": "done", "action_id": "dash-0001", "name": "move_cell", "success": True},
+            {"type": "ready", "fw": "maze-esp32", "version": "0.1.0"},
         ]
     )
     state = make_state(client=fake_client)
     runtime = SerialDashboardRuntime(state=state)
 
     assert runtime.poll_once()["type"] == "telemetry"
-    assert runtime.poll_once()["type"] == "done"
+    assert runtime.poll_once()["type"] == "ready"
 
     snapshot = state.snapshot()
     assert snapshot["telemetry"]["front_mm"] == 240
     assert snapshot["logs"][-2]["type"] == "telemetry"
-    assert snapshot["logs"][-1]["type"] == "done"
+    assert snapshot["logs"][-1]["type"] == "ready"
 
 
 def test_serial_runtime_heartbeat_once_records_ack():
@@ -220,6 +304,33 @@ def test_serial_runtime_heartbeat_once_records_ack():
     assert fake_client.heartbeats == [123456]
     assert state.snapshot()["last_ack"]["seq"] == 1
     assert state.snapshot()["logs"][-1]["type"] == "heartbeat"
+
+
+def test_dashboard_action_wait_does_not_block_heartbeat():
+    fake_client = BlockingDashboardClient()
+    state = make_state(client=fake_client)
+    action_thread = threading.Thread(
+        target=lambda: state.manual_action(name="move_cell")
+    )
+    action_thread.start()
+    assert fake_client.action_started.wait(timeout=0.5)
+
+    heartbeat_result = {}
+    heartbeat_thread = threading.Thread(
+        target=lambda: heartbeat_result.setdefault(
+            "value",
+            state.send_heartbeat(),
+        )
+    )
+    heartbeat_thread.start()
+    heartbeat_thread.join(timeout=0.2)
+
+    try:
+        assert heartbeat_thread.is_alive() is False
+        assert heartbeat_result["value"]["ok"] is True
+    finally:
+        fake_client.release_action.set()
+        action_thread.join(timeout=1.0)
 
 
 def test_dashboard_frontend_uses_websocket_ping_refresh(tmp_path):

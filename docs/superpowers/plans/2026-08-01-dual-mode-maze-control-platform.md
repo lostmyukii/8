@@ -231,7 +231,7 @@ feat: add authenticated control lease
 - Modify: `rdk_maze_tuner/dashboard/runtime.py`
 - Modify: `rdk_maze_tuner/dashboard/state.py`
 
-- [ ] **3.1 写单 reader 失败测试**
+- [x] **3.1 写单 reader 失败测试**
 
 验证：
 
@@ -242,11 +242,11 @@ feat: add authenticated control lease
 - 并发 heartbeat 和 action 不互相抢读。
 - 断开后所有 waiter 得到明确异常。
 
-- [ ] **3.2 实现 `DeviceSession`**
+- [x] **3.2 实现 `DeviceSession`**
 
 保留 `SerialClient` 外部协议语义，但 Dashboard、MazeRunner 和 heartbeat 不再各自读取底层 stream。
 
-- [ ] **3.3 定义 `ModeAdapter`**
+- [x] **3.3 定义 `ModeAdapter`**
 
 统一方法：
 
@@ -264,7 +264,7 @@ close()
 
 仿真适配器连接 `127.0.0.1:8765`；实车适配器第一步只实现离线占位和明确的 `DEVICE_OFFLINE`。
 
-- [ ] **3.4 保留现有协议回归**
+- [x] **3.4 保留现有协议回归**
 
 ```bash
 .venv/bin/python -m pytest \
@@ -274,11 +274,22 @@ close()
   rdk_maze_tuner/tests/test_dashboard.py -q
 ```
 
-- [ ] **3.5 提交检查点**
+- [x] **3.5 提交检查点**
 
 ```text
 refactor: centralize device session ownership
 ```
+
+实施证据（2026-08-01）：
+
+- 初始 RED：`rdk_maze_tuner.core.device_session` 和 `rdk_maze_tuner.platform.modes` 不存在，新测试在收集阶段失败。
+- 集成 RED：Dashboard 假客户端移除 `read_message()` 后，旧 runtime 仍直接读 transport；并发动作测试同时证明状态锁会阻塞心跳。
+- `DeviceSession` 现在是唯一 transport reader；ACK 按 `seq`、动作结果按 `action_id` 分发，telemetry 通过有界订阅广播，断联会唤醒全部 pending waiter。
+- `SerialClient` 增加 reader 所有权保护、线程安全序号和写入；Dashboard 原始 `SerialClient` 在应用入口统一包装为 `DeviceSession`。
+- Dashboard 等待动作、参数 ACK、停止或急停时不再持有状态锁，动作等待期间心跳可以并发完成。
+- 仿真适配器默认连接 `127.0.0.1:8765` 并提供统一模式方法；实车适配器在 RDK Agent 尚未实现前明确返回 `DEVICE_OFFLINE`。
+- Task 3 目标测试：25 passed；完整 Python 回归：86 passed；真实 TCP 仿真桥通过 `DeviceSession` 集成测试。
+- `compileall`、`uv pip check` 和 ESP32 PlatformIO 构建通过；本任务未连接或驱动真实小车，`真车可用` 仍需按硬件验证顺序单独验收。
 
 ### Task 4：任务状态机与自动探索编排
 

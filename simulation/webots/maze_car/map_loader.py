@@ -20,6 +20,8 @@ class CompiledMap:
     cell_height_m: float
     wall_thickness_m: float
     wall_height_m: float
+    actual_passage_x_m: float
+    actual_passage_y_m: float
     start_cell: Cell
     start_heading: str
     goals: tuple[Cell, ...]
@@ -41,6 +43,16 @@ def compile_map(definition: MapDefinition) -> CompiledMap:
         cell_height_m=definition.cell_height_mm / 1_000,
         wall_thickness_m=definition.wall_thickness_mm / 1_000,
         wall_height_m=definition.wall_height_mm / 1_000,
+        actual_passage_x_m=(
+            definition.cell_width_mm
+            - definition.wall_thickness_mm
+        )
+        / 1_000,
+        actual_passage_y_m=(
+            definition.cell_height_mm
+            - definition.wall_thickness_mm
+        )
+        / 1_000,
         start_cell=(definition.start.x, definition.start.y),
         start_heading=definition.start.heading,
         goals=definition.goals,

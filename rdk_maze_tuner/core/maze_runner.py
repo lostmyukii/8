@@ -10,6 +10,7 @@ from .maze_map import MazeMap, PlannedAction
 from .maze_planner import MazePlanner
 from .auto_tuner import AutoTuner
 from .motion_analyzer import MotionAnalyzer, MotionReport
+from .motion_targets import MotionTarget, MotionTargetResolver
 from .param_manager import ParamManager
 
 
@@ -49,6 +50,7 @@ class MazeStepResult:
     map_text: str
     motion_report: Optional[MotionReport] = None
     tune_event: Optional[dict] = None
+    motion_target: Optional[MotionTarget] = None
     outcome: str = "continue"
     events: tuple[dict[str, Any], ...] = ()
 
@@ -65,6 +67,7 @@ class MazeRunner:
         tuner: Optional[AutoTuner] = None,
         logger: Optional[JsonlLogger] = None,
         action_prefix: str = "maze",
+        motion_targets: MotionTargetResolver | None = None,
     ) -> None:
         self.client = client
         self.params = params
@@ -74,6 +77,7 @@ class MazeRunner:
         self.tuner = tuner
         self.logger = logger
         self.action_prefix = action_prefix
+        self.motion_targets = motion_targets
         self._action_index = 0
 
     def run_step(
@@ -186,14 +190,15 @@ class MazeRunner:
             )
 
         action_id = self._next_action_id()
-        speed, target_ticks = self._motion_params_for(action)
+        speed, motion_target = self._motion_params_for(action)
+        target_ticks = motion_target.target_ticks
         emit(
             "planned_action",
             {
                 "action_id": action_id,
                 "name": action.name,
                 "speed": speed,
-                "target_ticks": target_ticks,
+                **motion_target.to_dict(),
             },
         )
         done = self.client.execute_action(
@@ -234,6 +239,7 @@ class MazeRunner:
             map_text=self.maze.render_ascii(),
             motion_report=motion_report,
             tune_event=tune_event,
+            motion_target=motion_target,
             outcome=outcome,
             events=tuple(events),
         )
@@ -242,12 +248,21 @@ class MazeRunner:
         self._action_index += 1
         return f"{self.action_prefix}-{self._action_index:04d}"
 
-    def _motion_params_for(self, action: PlannedAction) -> tuple[float, int]:
+    def _motion_params_for(
+        self,
+        action: PlannedAction,
+    ) -> tuple[float, MotionTarget]:
+        resolver = (
+            self.motion_targets
+            if self.motion_targets is not None
+            else MotionTargetResolver.from_params(self.params)
+        )
+        target = resolver.resolve(action, self.maze)
         if action.name == "move_cell":
-            return float(self.params.get("motor.base_speed")), int(self.params.get("motion.cell_ticks"))
-        if action.name == "turn_back":
-            return float(self.params.get("motor.turn_speed")), int(self.params.get("motion.turn_180_ticks"))
-        return float(self.params.get("motor.turn_speed")), int(self.params.get("motion.turn_90_ticks"))
+            speed = float(self.params.get("motor.base_speed"))
+        else:
+            speed = float(self.params.get("motor.turn_speed"))
+        return speed, target
 
     def _log(self, event_type: str, payload: object) -> None:
         if self.logger is not None:

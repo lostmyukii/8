@@ -317,6 +317,58 @@ def test_start_echoes_exact_map_and_profile_identity():
     assert reply[0]["physical_profile_digest"] == value.profile.digest
 
 
+def test_start_rejects_a_loaded_map_with_unsafe_physical_passage():
+    value, _device, _world, _truth = engine()
+    definition = validate_map_definition(
+        {
+            "rows": 2,
+            "cols": 2,
+            "cell_width_mm": 300,
+            "cell_height_mm": 300,
+            "wall_thickness_mm": 20,
+            "wall_height_mm": 180,
+            "start": {"x": 0, "y": 1, "heading": "N"},
+            "goals": [{"x": 1, "y": 0}],
+            "walls": [
+                {"x1": 0, "y1": 0, "x2": 2, "y2": 0},
+                {"x1": 2, "y1": 0, "x2": 2, "y2": 2},
+                {"x1": 2, "y1": 2, "x2": 0, "y2": 2},
+                {"x1": 0, "y1": 2, "x2": 0, "y2": 0},
+            ],
+            "source_image_digest": None,
+        }
+    )
+    loaded = value.handle(
+        {
+            "type": "load_map",
+            "seq": 20,
+            "map_version_id": "unsafe-physical-v1",
+            "digest": definition.content_digest,
+            "definition": definition.to_dict(),
+        },
+        now_ms=0,
+    )
+    value.handle({"type": "reset", "seq": 21}, now_ms=8)
+
+    started = value.handle(
+        {
+            "type": "start",
+            "seq": 22,
+            "map_version_id": "unsafe-physical-v1",
+            "map_digest": definition.content_digest,
+            "physical_profile_id": value.profile.profile_id,
+            "physical_profile_digest": value.profile.digest,
+        },
+        now_ms=16,
+    )
+
+    assert loaded[0]["ok"] is True
+    assert started[0]["ok"] is False
+    assert started[0]["code"] == "MAP_GEOMETRY_UNSAFE"
+    assert started[0]["preflight"]["actual_passage_x_mm"] == 280.0
+    assert started[0]["preflight"]["actual_passage_y_mm"] == 280.0
+
+
 def test_action_acks_immediately_then_ticks_emit_telemetry_and_matching_done():
     value, device, _world, truth = engine()
 

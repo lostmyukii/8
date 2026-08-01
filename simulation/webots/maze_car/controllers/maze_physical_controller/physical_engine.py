@@ -20,6 +20,9 @@ from simulation.webots.maze_car.physical_config import (
     PhysicalProfile,
     PhysicalProfileRepository,
 )
+from simulation.webots.maze_car.physical_preflight import (
+    PhysicalGeometryPreflight,
+)
 
 from .action_controller import (
     ActionControlConfig,
@@ -436,6 +439,22 @@ class PhysicalMazeEngine:
                 seq,
                 ok=False,
                 message="physical controller is not idle",
+            )
+        geometry = self.profile.geometry
+        preflight = PhysicalGeometryPreflight(
+            chassis_length_mm=geometry.chassis_length_m * 1_000.0,
+            chassis_width_mm=geometry.chassis_width_m * 1_000.0,
+        ).check(
+            self.map_definition,
+            map_version_id=self.map_version_id,
+        )
+        if not preflight.ok:
+            return self._ack(
+                seq,
+                ok=False,
+                code=preflight.code,
+                message="physical map passage is unsafe",
+                preflight=preflight.to_dict(),
             )
         return self._identity_ack(seq)
 

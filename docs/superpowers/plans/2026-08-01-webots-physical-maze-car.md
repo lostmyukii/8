@@ -772,7 +772,7 @@ Task 6 实施记录（2026-08-01）：
 - Modify: `simulation/webots/maze_car/map_loader.py`
 - Modify: `rdk_maze_tuner/tests/test_webots_map_loader.py`
 
-- [ ] **7.1 写动作距离换算失败测试**
+- [x] **7.1 写动作距离换算失败测试**
 
 覆盖：
 
@@ -785,7 +785,7 @@ Task 6 实施记录（2026-08-01）：
 - `planned_action` 和回放事件保存实际距离、ticks/mm 和最终 `target_ticks`。
 - 非正距离、非正 ticks/mm 和整数溢出拒绝。
 
-- [ ] **7.2 写车辆包络失败测试**
+- [x] **7.2 写车辆包络失败测试**
 
 覆盖：
 
@@ -807,7 +807,7 @@ Run:
 
 Expected: RED，因为 runner 仍固定读取 `motion.cell_ticks`。
 
-- [ ] **7.3 实现 `MotionTargetResolver`**
+- [x] **7.3 实现 `MotionTargetResolver`**
 
 将距离换算注入 `MazeRunner`，默认实现保持旧测试兼容：
 
@@ -816,7 +816,7 @@ Expected: RED，因为 runner 仍固定读取 `motion.cell_ticks`。
   `cell_height_mm` 和当前动作方向换算。
 - Resolver 不访问串口，不修改参数，只返回可记录的目标描述。
 
-- [ ] **7.4 实现物理预检**
+- [x] **7.4 实现物理预检**
 
 预检报告至少包含：
 
@@ -831,13 +831,37 @@ map_version_id
 map_digest
 ```
 
-- [ ] **7.5 运行目标测试和完整回归**
+- [x] **7.5 运行目标测试和完整回归**
 
-- [ ] **7.6 提交检查点**
+- [x] **7.6 提交检查点**
 
 ```text
 feat: derive physical actions from maze geometry
 ```
+
+Task 7 实施记录（2026-08-01）：
+
+- RED：`test_motion_targets.py` 和 `test_physical_preflight.py` 在收集阶段
+  分别因 `motion_targets`、`physical_preflight` 模块不存在而失败。
+- `MotionTargetResolver` 为纯换算组件：250 mm × 5.4 ticks/mm =
+  1350 ticks，450 mm = 2430 ticks；N/S 使用 `cell_height_mm`，E/W
+  使用 `cell_width_mm`，只有正式地图缺失对应尺寸时才回退
+  `robot.cell_size_cm`。
+- `MazeRunner` 的 `planned_action`、事件流和 JSONL 回放输入现在同时记录
+  `direction`、`distance_mm`、`ticks_per_mm`、`target_ticks`、
+  `target_source` 和转向角；默认 resolver 每步从当前参数重新建立，保留
+  自动调参后下一动作生效的旧语义。
+- 距离、ticks/mm、转向 ticks、结果 ticks 只接受正有限值，最终
+  `target_ticks` 超出 signed 32-bit 范围时拒绝。
+- 230 × 160 mm 底盘转向包络实算为 280.1785 mm；物理净通道最低要求
+  320 mm，X/Y 净通道均按格尺寸减墙厚计算。
+- 服务器协议实测：450 mm/40 mm 地图可 start；300 mm/20 mm 地图可
+  load/reset 和用于确定性编译，但 physical start 返回
+  `MAP_GEOMETRY_UNSAFE`，报告净通道 X/Y 均为 280 mm，并携带地图版本、
+  摘要和包络值。
+- 目标测试：48 passed。
+- 完整 Python 回归：269 passed；`compileall` 通过。
+- ESP32 PlatformIO 构建通过：RAM 6.9%，Flash 24.2%。
 
 ### Task 8：四种摩擦场景、真值滑移和故障注入
 

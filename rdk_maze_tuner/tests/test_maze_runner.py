@@ -4,6 +4,7 @@ from rdk_maze_tuner.core.maze_map import Direction, MazeMap
 from rdk_maze_tuner.core.maze_planner import MazePlanner
 from rdk_maze_tuner.core.maze_runner import MazeRunner
 from rdk_maze_tuner.core.motion_analyzer import MotionAnalyzer
+from rdk_maze_tuner.core.motion_targets import MotionTargetResolver
 from rdk_maze_tuner.core.auto_tuner import AutoTuner
 from rdk_maze_tuner.core.param_manager import ParamManager
 from rdk_maze_tuner.core.serial_client import SerialClient
@@ -102,6 +103,56 @@ def test_runner_observes_telemetry_sends_action_and_updates_position_after_done(
             "target_ticks": 1350,
         }
     ]
+
+
+def test_runner_records_map_distance_ticks_per_mm_and_resolved_target():
+    fake = DynamicFakeSerial(
+        [
+            {
+                "type": "telemetry",
+                "state": "IDLE",
+                "front_mm": 500,
+                "left_mm": 90,
+                "right_mm": 90,
+            },
+        ]
+    )
+    params = ParamManager(
+        params_path=__import__("pathlib").Path(PARAMS),
+        limits_path=__import__("pathlib").Path(LIMITS),
+    )
+    maze = MazeMap(
+        wall_threshold_mm=params.get("tof.wall_threshold_mm"),
+        heading=Direction.NORTH,
+    )
+    maze.cell_width_mm = 250
+    maze.cell_height_mm = 450
+    runner = MazeRunner(
+        client=SerialClient(fake, timeout_s=0.01),
+        params=params,
+        maze=maze,
+        planner=MazePlanner(),
+        motion_targets=MotionTargetResolver(
+            ticks_per_mm=5.4,
+            fallback_cell_size_mm=250,
+            turn_90_ticks=720,
+            turn_180_ticks=1440,
+        ),
+    )
+
+    result = runner.run_step()
+    planned = next(
+        event["payload"]
+        for event in result.events
+        if event["type"] == "planned_action"
+    )
+
+    assert sent_messages(fake)[0]["target_ticks"] == 2430
+    assert planned["direction"] == "N"
+    assert planned["distance_mm"] == 450.0
+    assert planned["ticks_per_mm"] == 5.4
+    assert planned["target_ticks"] == 2430
+    assert planned["target_source"] == "map.cell_height_mm"
 
 
 def test_runner_returns_stop_step_without_sending_action_when_no_open_path():

@@ -49,6 +49,8 @@ def test_compile_map_generates_engine_edges_and_webots_wall_nodes():
     assert compiled.cols == 3
     assert compiled.cell_width_m == 0.4
     assert compiled.cell_height_m == 0.3
+    assert compiled.actual_passage_x_m == 0.38
+    assert compiled.actual_passage_y_m == 0.28
     assert compiled.start_cell == (0, 1)
     assert compiled.start_heading == "E"
     assert frozenset(((0, 0), (1, 0))) in compiled.internal_walls

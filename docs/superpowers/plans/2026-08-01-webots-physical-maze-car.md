@@ -95,7 +95,7 @@ git diff --check
 - Create: `rdk_maze_tuner/tests/test_physical_config.py`
 - Modify: `simulation/webots/maze_car/README.md`
 
-- [ ] **1.1 写配置加载失败测试**
+- [x] **1.1 写配置加载失败测试**
 
 覆盖：
 
@@ -116,7 +116,7 @@ Run:
 
 Expected: RED，因为 `physical_config.py` 和 profile 文件尚不存在。
 
-- [ ] **1.2 实现强类型配置合同**
+- [x] **1.2 实现强类型配置合同**
 
 使用冻结 dataclass 表示：
 
@@ -144,7 +144,7 @@ PhysicalProfile
 
 配置读取不得修改文件，也不得把 YAML 中的任意路径传给文件系统。
 
-- [ ] **1.3 固化第一版参数**
+- [x] **1.3 固化第一版参数**
 
 共同基线：
 
@@ -177,13 +177,33 @@ asymmetric:   left=0.35, right=0.90
 local-patch:  base=0.90, patch=0.25
 ```
 
-- [ ] **1.4 运行目标测试和完整回归**
+- [x] **1.4 运行目标测试和完整回归**
 
-- [ ] **1.5 提交检查点**
+- [x] **1.5 提交检查点**
 
 ```text
 feat: add versioned physical simulation profiles
 ```
+
+Task 1 实施记录（2026-08-01）：
+
+- RED：`test_physical_config.py` 在收集阶段因
+  `simulation.webots.maze_car.physical_config` 不存在而失败。
+- 新增 4 个完整 YAML profile；几何、质量、电机、编码器、ToF、IMU、
+  runtime 和固定种子一致，只允许 `profile_id` 与 surface 场景不同。
+- 配置合同使用冻结 dataclass、严格字段白名单、有限数/范围/概率校验、
+  质量守恒、正定惯量、受控目录和重复 ID 检查；规范 JSON 计算 SHA-256，
+  可用 `expected_digest` 拒绝摘要不匹配。
+- 固定种子均为 `20260801`；摘要分别为
+  `normal-v1=da0ca2fc...451f`、
+  `low-v1=b021fa16...c543`、
+  `asymmetric-v1=7cc8b04f...ca68`、
+  `local-patch-v1=b95f1601...f098`。
+- 目标测试：18 passed。
+- 完整 Python 回归：181 passed；`compileall` 通过。
+- ESP32 PlatformIO 构建通过：RAM 6.9%，Flash 24.2%。
+- Task 1 只建立配置资产，没有启动 Webots、修改稳定 world 或声称物理
+  仿真/真实小车已验收。
 
 ### Task 2：抽象仿真引擎合同并保持确定性后端不变
 

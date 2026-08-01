@@ -1,0 +1,55 @@
+schema_version: 1
+profile_id: local-patch-v1
+random_seed: 20260801
+
+geometry:
+  wheel_radius_m: 0.0325
+  wheel_width_m: 0.026
+  axle_track_m: 0.135
+  chassis_length_m: 0.230
+  chassis_width_m: 0.160
+
+body:
+  total_mass_kg: 1.20
+  body_mass_kg: 1.08
+  wheel_mass_kg: 0.06
+  center_of_mass_m: [0.0, 0.070, 0.010]
+  inertia_matrix_kg_m2: [0.00768, 0.00707, 0.00522, 0.0, 0.0, 0.0]
+
+motor:
+  max_velocity_rad_s: 20.0
+  max_torque_nm: 0.18
+  response_time_s: 0.08
+  pwm_dead_zone: 0.18
+  left_gain: 1.0
+  right_gain: 1.0
+
+encoder:
+  ticks_per_revolution: 1103
+  quantization_enabled: true
+  missed_pulse_rate: 0.0
+
+tof:
+  min_range_m: 0.03
+  max_range_m: 2.0
+  field_of_view_deg: 25.0
+  noise_std_mm: 5.0
+  dropout_rate: 0.005
+
+imu:
+  yaw_noise_std_deg: 0.35
+  gyro_noise_std_dps: 0.5
+  accel_noise_std_mps2: 0.05
+
+surface:
+  profile: local_patch
+  base_floor_friction: 0.90
+  left_wheel_friction: 0.90
+  right_wheel_friction: 0.90
+  patch_enabled: true
+  patch_friction: 0.25
+
+runtime:
+  basic_time_step_ms: 8
+  telemetry_period_ms: 50
+  render_fps: 24

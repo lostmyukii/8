@@ -72,6 +72,17 @@ def test_dashboard_v2_has_complete_mission_control_dom_contract(tmp_path):
         "paramWorkbench",
         "mazeMap",
         "eventTimeline",
+        "runReplay",
+        "scoreTotal",
+        "scoreBreakdown",
+        "replayVideo",
+        "replayStructuredFallback",
+        "replayPlayButton",
+        "replaySeek",
+        "replayRail",
+        "replayKeyEvents",
+        "replayEventDetail",
+        "replayRunSelect",
     }
 
     assert required_ids <= parser.ids
@@ -87,7 +98,13 @@ def test_dashboard_v2_loads_small_native_javascript_modules(tmp_path):
         "src": "/static/app.js",
         "type": "module",
     } in parser.scripts
-    for filename in ("api.js", "state.js", "render.js", "controls.js"):
+    for filename in (
+        "api.js",
+        "state.js",
+        "render.js",
+        "controls.js",
+        "replay.js",
+    ):
         assert (STATIC_DIR / filename).is_file()
 
     entrypoint = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
@@ -95,6 +112,7 @@ def test_dashboard_v2_loads_small_native_javascript_modules(tmp_path):
     assert 'from "./state.js"' in entrypoint
     assert 'from "./render.js"' in entrypoint
     assert 'from "./controls.js"' in entrypoint
+    assert 'from "./replay.js"' in entrypoint
 
 
 def test_dashboard_controls_cover_auth_lease_tasks_and_shared_estop():
@@ -118,6 +136,19 @@ def test_dashboard_controls_cover_auth_lease_tasks_and_shared_estop():
     assert "/api/command/estop" in api_source
     assert "control.role === \"controller\"" in render_source
     assert "disabled" in render_source
+
+
+def test_dashboard_replay_uses_scored_monotonic_timeline_contract():
+    api_source = (STATIC_DIR / "api.js").read_text(encoding="utf-8")
+    replay_source = (STATIC_DIR / "replay.js").read_text(encoding="utf-8")
+
+    for suffix in ("", "/events", "/replay"):
+        assert f"${{encoded}}{suffix}" in api_source
+    assert "duration_ms" in replay_source
+    assert "key_events" in replay_source
+    assert "currentTime" in replay_source
+    assert "结构化回放可用" in replay_source
+    assert "listRuns" in replay_source
 
 
 def test_dashboard_css_has_desktop_laptop_and_readonly_narrow_layouts():

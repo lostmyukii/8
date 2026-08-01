@@ -18,6 +18,10 @@ import {
 } from "./render.js";
 import { bindControls } from "./controls.js";
 import { initializeMazeEditor } from "./maze_editor.js";
+import {
+  initializeRunReplay,
+  updateReplayTask,
+} from "./replay.js";
 
 let socket = null;
 let reconnectTimer = null;
@@ -31,7 +35,11 @@ function scheduleRender(appState) {
   renderTimer = window.setTimeout(
     () => {
       lastRenderAt = performance.now();
-      renderDashboard(getAppState());
+      const current = getAppState();
+      renderDashboard(current);
+      if (current.authenticated) {
+        updateReplayTask(current.activeTask);
+      }
     },
     Math.max(0, 100 - elapsed),
   );
@@ -95,6 +103,7 @@ bindControls({
   onLogout: stopLiveUpdates,
 });
 initializeMazeEditor();
+initializeRunReplay();
 
 async function bootstrap() {
   try {

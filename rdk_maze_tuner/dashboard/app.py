@@ -32,6 +32,7 @@ from rdk_maze_tuner.dashboard.routes.control import (
     create_control_router,
 )
 from rdk_maze_tuner.dashboard.routes.maps import create_maps_router
+from rdk_maze_tuner.dashboard.routes.runs import create_runs_router
 from rdk_maze_tuner.dashboard.routes.tasks import create_tasks_router
 from rdk_maze_tuner.dashboard.state import DashboardState
 from rdk_maze_tuner.platform.auth import (
@@ -52,6 +53,12 @@ from rdk_maze_tuner.platform.modes import (
     SimulationModeAdapter,
 )
 from rdk_maze_tuner.platform.map_repository import MapRepository
+from rdk_maze_tuner.platform.replay import (
+    ReplayService,
+    RunFinalizer,
+)
+from rdk_maze_tuner.platform.retention import RetentionManager
+from rdk_maze_tuner.platform.scoring import ScoringService
 from rdk_maze_tuner.platform.task_orchestrator import (
     TaskConflictError,
     TaskOrchestrator,
@@ -79,6 +86,9 @@ def create_app(
     login_rate_limiter: Optional[LoginRateLimiter] = None,
     task_orchestrator: Optional[TaskOrchestrator] = None,
     map_repository: Optional[MapRepository] = None,
+    scoring_service: Optional[ScoringService] = None,
+    replay_service: Optional[ReplayService] = None,
+    retention_manager: Optional[RetentionManager] = None,
     client_mode: Optional[str] = None,
 ) -> FastAPI:
     resolved_database = (
@@ -113,10 +123,38 @@ def create_app(
         client=coordinated_client,
     )
     runtime = SerialDashboardRuntime(state=dashboard_state)
-    platform_config = PlatformConfig.from_env()
+    platform_config = PlatformConfig(data_dir=resolved_database.path.parent)
+    platform_config.ensure_directories()
     resolved_maps = map_repository or MapRepository(
         database=resolved_database,
         artifacts_dir=platform_config.artifacts_dir,
+    )
+    resolved_event_store = (
+        task_orchestrator.event_store
+        if task_orchestrator is not None
+        else EventStore(
+            database=resolved_database,
+            runs_dir=platform_config.runs_dir,
+        )
+    )
+    resolved_scoring = scoring_service or ScoringService(
+        database=resolved_database,
+        runs_dir=platform_config.runs_dir,
+    )
+    resolved_replay = replay_service or ReplayService(
+        database=resolved_database,
+        event_store=resolved_event_store,
+        data_dir=platform_config.data_dir,
+    )
+    resolved_retention = retention_manager or RetentionManager(
+        database=resolved_database,
+        data_dir=platform_config.data_dir,
+    )
+    run_finalizer = RunFinalizer(
+        scoring=resolved_scoring,
+        replay=resolved_replay,
+        retention=resolved_retention,
+        event_store=resolved_event_store,
     )
     if task_orchestrator is None:
         simulation_adapter = (
@@ -160,15 +198,15 @@ def create_app(
 
         resolved_tasks = TaskOrchestrator(
             database=resolved_database,
-            event_store=EventStore(
-                database=resolved_database,
-                runs_dir=platform_config.runs_dir,
-            ),
+            event_store=resolved_event_store,
             adapters=adapters,
             runner_factory=runner_factory,
+            run_finalizer=run_finalizer,
         )
     else:
         resolved_tasks = task_orchestrator
+        if resolved_tasks.run_finalizer is None:
+            resolved_tasks.run_finalizer = run_finalizer
     dashboard_state.attach_task_orchestrator(resolved_tasks)
 
     @asynccontextmanager
@@ -188,6 +226,9 @@ def create_app(
     app.state.runtime = runtime
     app.state.task_orchestrator = resolved_tasks
     app.state.map_repository = resolved_maps
+    app.state.scoring_service = resolved_scoring
+    app.state.replay_service = resolved_replay
+    app.state.retention_manager = resolved_retention
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     app.include_router(create_auth_router(auth_context))
     app.include_router(create_control_router(auth_context, resolved_leases))
@@ -197,6 +238,7 @@ def create_app(
     app.include_router(
         create_maps_router(auth_context, resolved_leases, resolved_maps)
     )
+    app.include_router(create_runs_router(auth_context, resolved_replay))
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> HTMLResponse:

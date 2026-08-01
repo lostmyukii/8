@@ -185,6 +185,25 @@ export function uploadMapSourceImage(mapId, file) {
   );
 }
 
+export function getRun(runId) {
+  const encoded = encodeURIComponent(runId);
+  return request(`/api/runs/${encoded}`);
+}
+
+export function listRuns(limit = 50) {
+  return request(`/api/runs?limit=${encodeURIComponent(limit)}`);
+}
+
+export function getRunEvents(runId) {
+  const encoded = encodeURIComponent(runId);
+  return request(`/api/runs/${encoded}/events`);
+}
+
+export function getRunReplay(runId) {
+  const encoded = encodeURIComponent(runId);
+  return request(`/api/runs/${encoded}/replay`);
+}
+
 export function openStateSocket({ onOpen, onState, onClose, onError }) {
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
   const socket = new WebSocket(`${protocol}://${window.location.host}/ws`);

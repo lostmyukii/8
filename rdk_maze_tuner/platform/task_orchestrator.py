@@ -100,6 +100,9 @@ class TaskRecord:
     runner: TaskRunner | None = None
     worker: threading.Thread | None = None
     operation: str | None = None
+    archive_status: str | None = None
+    archive_result: dict[str, Any] | None = None
+    archive_error: str | None = None
     events: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -114,6 +117,9 @@ class TaskOrchestrator:
         task_id_factory: Callable[[], str] | None = None,
         run_id_factory: Callable[[], str] | None = None,
         utc_now: Callable[[], datetime] | None = None,
+        run_finalizer: (
+            Callable[[str], Mapping[str, Any] | None] | None
+        ) = None,
     ) -> None:
         self.database = database
         self.event_store = event_store
@@ -126,6 +132,7 @@ class TaskOrchestrator:
             lambda: f"run-{uuid.uuid4()}"
         )
         self.utc_now = utc_now or (lambda: datetime.now(UTC))
+        self.run_finalizer = run_finalizer
         self._condition = threading.Condition(threading.RLock())
         self._tasks: dict[str, TaskRecord] = {}
         self._closed = False
@@ -977,6 +984,66 @@ class TaskOrchestrator:
                 ),
             )
         task.run_closed = True
+        self._finalize_run_locked(task)
+
+    def _finalize_run_locked(self, task: TaskRecord) -> None:
+        if task.run_id is None or self.run_finalizer is None:
+            return
+        try:
+            result = self.run_finalizer(task.run_id)
+            archive = (
+                _json_ready(result)
+                if isinstance(result, Mapping)
+                else {"run_id": task.run_id, "status": "complete"}
+            )
+            task.archive_result = archive
+            task.archive_status = str(
+                archive.get("status") or "complete"
+            )
+            task.archive_error = None
+        except Exception as exc:
+            task.archive_status = "incomplete"
+            task.archive_error = str(exc)
+            task.archive_result = {
+                "run_id": task.run_id,
+                "status": "incomplete",
+                "error": task.archive_error,
+            }
+        self._update_run_archive_metadata_locked(task)
+
+    def _update_run_archive_metadata_locked(self, task: TaskRecord) -> None:
+        if task.run_id is None:
+            return
+        with self.database.connection() as connection:
+            row = connection.execute(
+                "SELECT metadata_json FROM runs WHERE id = ?",
+                (task.run_id,),
+            ).fetchone()
+            metadata = {}
+            if row is not None:
+                try:
+                    value = json.loads(row["metadata_json"])
+                except (TypeError, json.JSONDecodeError):
+                    value = {}
+                if isinstance(value, dict):
+                    metadata = value
+            metadata["archive"] = {
+                "status": task.archive_status,
+                "error": task.archive_error,
+                "result": _json_ready(task.archive_result),
+            }
+            connection.execute(
+                "UPDATE runs SET metadata_json = ? WHERE id = ?",
+                (
+                    json.dumps(
+                        metadata,
+                        ensure_ascii=False,
+                        separators=(",", ":"),
+                        sort_keys=True,
+                    ),
+                    task.run_id,
+                ),
+            )
 
     def _emit_locked(
         self,
@@ -1021,6 +1088,9 @@ class TaskOrchestrator:
             "event_count": len(task.events),
             "recent_events": _json_ready(task.events[-40:]),
             "operation": task.operation,
+            "archive_status": task.archive_status,
+            "archive": _json_ready(task.archive_result),
+            "archive_error": task.archive_error,
             **state,
         }
 

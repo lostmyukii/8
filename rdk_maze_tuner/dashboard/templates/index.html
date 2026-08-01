@@ -252,6 +252,77 @@
           </article>
         </section>
 
+        <section id="runReplay" class="console-card replay-card" aria-labelledby="replayTitle">
+          <header class="card-heading replay-card__heading">
+            <div>
+              <p class="eyebrow">RUN FLIGHT RECORDER</p>
+              <h2 id="replayTitle">成绩与同步回放</h2>
+            </div>
+            <div class="replay-card__status">
+              <label class="replay-run-picker">
+                <span>历史运行</span>
+                <select id="replayRunSelect">
+                  <option value="">暂无运行记录</option>
+                </select>
+              </label>
+              <span id="replayStatus">等待已完成运行</span>
+              <span id="replayMediaState" class="status-pill status-pill--lost">NO MEDIA</span>
+            </div>
+          </header>
+
+          <div class="replay-overview">
+            <div class="replay-viewport">
+              <video id="replayVideo" preload="metadata" playsinline hidden></video>
+              <div id="replayStructuredFallback" class="replay-fallback">
+                <span class="replay-fallback__mark" aria-hidden="true"></span>
+                <strong>结构化回放可用</strong>
+                <p>视频证据尚未完成；仍可同步查看轨迹、遥测、动作、参数和安全事件。</p>
+              </div>
+              <div class="replay-viewport__stamp">
+                <span>RUN</span>
+                <b id="replayRunId">-</b>
+              </div>
+            </div>
+
+            <aside class="score-instrument" aria-label="运行成绩">
+              <div class="score-instrument__total">
+                <span>总分</span>
+                <strong id="scoreTotal">--</strong>
+                <small>/ 100</small>
+              </div>
+              <div>
+                <span class="utility-label">评分规则</span>
+                <strong id="scoreProfile">等待原始指标</strong>
+              </div>
+              <dl id="scoreBreakdown" class="score-breakdown"></dl>
+            </aside>
+          </div>
+
+          <div class="replay-controls">
+            <button id="replayPlayButton" class="replay-play" type="button" disabled>播放</button>
+            <output id="replayTime" for="replaySeek">00:00.000 / 00:00.000</output>
+            <input id="replaySeek" type="range" min="0" max="0" step="1" value="0" aria-label="回放时间">
+          </div>
+
+          <div id="replayRail" class="replay-rail" aria-label="运行事件刻度">
+            <div class="replay-rail__lane">
+              <span>动作</span><i data-channel="actions"></i>
+            </div>
+            <div class="replay-rail__lane">
+              <span>参数</span><i data-channel="parameters"></i>
+            </div>
+            <div class="replay-rail__lane">
+              <span>安全</span><i data-channel="safety"></i>
+            </div>
+            <div id="replayKeyEvents" class="replay-key-events"></div>
+            <b id="replayPlayhead" class="replay-playhead" aria-hidden="true"></b>
+          </div>
+
+          <div id="replayEventDetail" class="replay-event-detail" aria-live="polite">
+            选择一次已完成运行后，可按统一时间轴检查证据。
+          </div>
+        </section>
+
         <section id="mazeEditor" class="console-card maze-editor">
           <header class="card-heading maze-editor__heading">
             <div>

@@ -621,11 +621,11 @@ feat: add fused pose and slip evidence
 - Create: `rdk_maze_tuner/tests/test_retention.py`
 - Modify: `rdk_maze_tuner/core/logger.py`
 
-- [ ] **8.1 写原始指标和计分失败测试**
+- [x] **8.1 写原始指标和计分失败测试**
 
 原始指标独立保存；更换 score profile 只重算综合分，不改原始数据。
 
-- [ ] **8.2 实现默认 `score-profile-v1`**
+- [x] **8.2 实现默认 `score-profile-v1`**
 
 权重：
 
@@ -636,7 +636,7 @@ feat: add fused pose and slip evidence
 - 动作精度 8。
 - 安全与稳定 10。
 
-- [ ] **8.3 实现视频记录**
+- [x] **8.3 实现视频记录**
 
 仿真：
 
@@ -650,17 +650,17 @@ feat: add fused pose and slip evidence
 
 视频失败时任务继续，但 run 标记媒体不完整。
 
-- [ ] **8.4 实现统一回放清单**
+- [x] **8.4 实现统一回放清单**
 
 按单调时间同步视频、轨迹、遥测、动作、参数、审批和安全事件；关键事件可以直接跳转。
 
-- [ ] **8.5 实现保留策略**
+- [x] **8.5 实现保留策略**
 
 - 普通视频 30 天。
 - JSONL/指标 180 天。
 - 最佳、基准、事故和比赛证据长期保留。
 
-- [ ] **8.6 运行测试**
+- [x] **8.6 运行测试**
 
 ```bash
 .venv/bin/python -m pytest \
@@ -669,11 +669,22 @@ feat: add fused pose and slip evidence
   rdk_maze_tuner/tests/test_retention.py -q
 ```
 
-- [ ] **8.7 提交检查点**
+- [x] **8.7 提交检查点**
 
 ```text
 feat: add scored synchronized run replay
 ```
+
+Task 8 实施记录（2026-08-01）：
+
+- 原始指标以运行目录中的原子 JSON 文件冻结，并在 SQLite 中索引；score profile 版本化重算不改原始数据，缺失证据明确标记并按 0 分处理。
+- 任务结束回调依次生成原始指标、`score-profile-v1` 分项成绩、JSONL 索引和单调时间回放清单；归档或 ffmpeg 失败只记录 `archive_status` / `media_incomplete`，不反向改变任务完成状态。
+- 视频模块覆盖 Xvfb/Webots `x11grab` 命令、640×360 JPEG 管道、5–10 FPS 配置、3 Mbps 窗口限流、MP4 封装结果与 SHA-256 证据登记。
+- 回放 API 支持历史运行列表、运行摘要、事件、回放清单和受认证保护的视频；控制台增加总分、分项证据、视频降级提示、关键事件轨和同步播放头，服务器重启后仍能重新选择历史 run。
+- 普通视频按 30 天、JSONL/原始指标/回放清单按 180 天调度；固定和被报告引用的证据受保护，目录逃逸路径拒绝清理。
+- 目标回归 31 项通过；完整 Python 回归 163 项通过，另执行 `compileall`、全部 Dashboard JavaScript `node --check`、`uv pip check`、ESP32 PlatformIO 构建和 `git diff --check`。
+- Playwright 使用隔离的临时 SQLite/JSONL 运行记录验证 1440×1000 和 768×1000 视口；历史运行可选、86.1 示例分项可见、无视频结构化降级可见，播放后事件详情从 telemetry 同步前进到 `task.completed`。
+- 本 Task 未启动真实 Webots GUI 录像、未连接 RDK X3 相机、未运行真实 ffmpeg 编码、未连接 ESP32 或真实小车；真实视频、帧率、带宽和物理动作仍需在 Task 10/13/14 接线和验收。
 
 阶段 B 验收：
 

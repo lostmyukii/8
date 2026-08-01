@@ -1,3 +1,4 @@
+import json
 import threading
 import time
 from collections import deque
@@ -135,7 +136,7 @@ class DisconnectingRunner:
         raise DeviceDisconnectedError("device link lost")
 
 
-def make_orchestrator(tmp_path, runners):
+def make_orchestrator(tmp_path, runners, *, run_finalizer=None):
     database = Database(tmp_path / "platform.sqlite3")
     database.initialize()
     events = EventStore(
@@ -154,6 +155,7 @@ def make_orchestrator(tmp_path, runners):
         task_id_factory=lambda: next(task_ids),
         run_id_factory=lambda: next(run_ids),
         utc_now=lambda: datetime(2026, 8, 1, 12, 0, tzinfo=UTC),
+        run_finalizer=run_finalizer,
     )
     return database, events, adapter, orchestrator
 
@@ -206,6 +208,69 @@ def test_orchestrator_runs_to_goal_and_persists_structured_events(tmp_path):
     assert row["status"] == "COMPLETED"
     assert row["started_at_utc"] is not None
     assert row["ended_at_utc"] is not None
+
+
+def test_completed_task_records_media_incomplete_archive_without_failing(
+    tmp_path,
+):
+    finalized = []
+
+    def finalize(run_id):
+        finalized.append(run_id)
+        return {
+            "run_id": run_id,
+            "status": "media_incomplete",
+            "media_complete": False,
+        }
+
+    _, _, _, orchestrator = make_orchestrator(
+        tmp_path,
+        [ScriptedRunner(["goal_reached"])],
+        run_finalizer=finalize,
+    )
+    ready = create_ready_task(orchestrator)
+
+    orchestrator.start(ready["task_id"])
+    completed = orchestrator.wait_for_state(
+        ready["task_id"],
+        {TaskStatus.COMPLETED},
+        timeout_s=1.0,
+    )
+
+    assert completed["status"] == "COMPLETED"
+    assert completed["archive_status"] == "media_incomplete"
+    assert completed["archive"]["media_complete"] is False
+    assert completed["archive_error"] is None
+    assert finalized == [ready["run_id"]]
+
+
+def test_archive_failure_is_recorded_but_does_not_fail_task(tmp_path):
+    def finalize(_run_id):
+        raise RuntimeError("ffmpeg unavailable")
+
+    database, _, _, orchestrator = make_orchestrator(
+        tmp_path,
+        [ScriptedRunner(["goal_reached"])],
+        run_finalizer=finalize,
+    )
+    ready = create_ready_task(orchestrator)
+
+    orchestrator.start(ready["task_id"])
+    completed = orchestrator.wait_for_state(
+        ready["task_id"],
+        {TaskStatus.COMPLETED},
+        timeout_s=1.0,
+    )
+
+    assert completed["status"] == "COMPLETED"
+    assert completed["archive_status"] == "incomplete"
+    assert completed["archive_error"] == "ffmpeg unavailable"
+    with database.connection() as connection:
+        row = connection.execute(
+            "SELECT metadata_json FROM runs WHERE id = ?",
+            (ready["run_id"],),
+        ).fetchone()
+    assert json.loads(row["metadata_json"])["archive"]["status"] == "incomplete"
 
 
 def test_pause_waits_for_step_boundary_and_then_stops_safely(tmp_path):

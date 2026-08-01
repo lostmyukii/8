@@ -200,7 +200,10 @@ def _run_physical_protocol(robot: Supervisor) -> None:
     profiles = PhysicalProfileRepository()
     profile_id = os.environ.get(
         "MAZE_PHYSICAL_PROFILE_ID",
-        "normal-v1",
+        os.environ.get(
+            "MAZE_DEFAULT_PHYSICAL_PROFILE",
+            "normal-v1",
+        ),
     )
     expected_digest = os.environ.get(
         "MAZE_PHYSICAL_PROFILE_DIGEST"

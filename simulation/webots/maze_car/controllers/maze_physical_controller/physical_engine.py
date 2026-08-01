@@ -559,6 +559,7 @@ class PhysicalMazeEngine:
                 sample.wheel_speed_right_rad_s
                 * self.profile.geometry.wheel_radius_m
             ),
+            axle_track_m=self.profile.geometry.axle_track_m,
             active_surface=sample.friction_profile,
             collision_count=self._collision_count,
         )

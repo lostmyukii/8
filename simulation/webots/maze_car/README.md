@@ -77,3 +77,33 @@ MAZE_P1_STABILITY=1 webots --batch --mode=fast \
 
 控制器运行 10 秒后只读输出 `MAZE_P1_STABILITY` JSON。报告包括位置漂移、
 姿态变化、最大垂直速度、最大倾角、倾覆和穿地判断；P1 不发送电机命令。
+
+## 自动化 P1–P4 物理验收
+
+服务器使用独立临时端口和临时结果目录执行，不占用生产协议端口
+`127.0.0.1:8765`：
+
+```bash
+python3 -m simulation.webots.maze_car.tools.run_physical_acceptance \
+  --webots /usr/local/bin/webots \
+  --world simulation/webots/maze_car/worlds/maze_physical_calibration.wbt \
+  --scenarios simulation/webots/maze_car/config/acceptance_scenarios.yaml \
+  --output /srv/maze/shared/acceptance/physical
+```
+
+每次运行生成一个不可变运行目录，至少包含：
+
+- `events.jsonl`：ready、reset、动作、telemetry、done/error 和进程事件。
+- `report.json`：源码 commit、Webots 版本、profile/map 摘要、seed、
+  P1/P2 指标、逐场景阈值判定、实时倍率、8 ms 控制周期和错误。
+- 每个场景的 `webots.log` 与初始场景截图。
+
+Webots 不存在时报告状态是 `unavailable` 且命令返回非零；ready 超时、
+子进程退出、协议断开、场景阈值失败或报告字段不完整同样返回非零，
+不会把缺失证据写成 PASS。runner 只回收自己启动并写入 PID 文件的
+Webots 进程，不使用 `pkill` 或 `killall`。
+
+服务器的 stream、desktop、headless 三种服务均显式加载
+`maze_physical_world.wbt` 和 `normal-v1`。它们互斥运行，协议只监听
+`127.0.0.1:8765`；stream 继续输出 W3D，headless 保持 world 中定义的
+8 ms 物理步长而关闭渲染。

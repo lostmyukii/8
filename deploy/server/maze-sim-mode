@@ -2,6 +2,11 @@
 set -Eeuo pipefail
 
 mode=${1:-}
+physical_world="/srv/maze/current/simulation/webots/maze_car/worlds/maze_physical_world.wbt"
+if [[ ${mode} != status && ! -r ${physical_world} ]]; then
+  echo "Physical Webots world is missing: ${physical_world}" >&2
+  exit 1
+fi
 case "${mode}" in
   stream)
     systemctl stop maze-webots-desktop.service maze-webots-headless.service
@@ -19,6 +24,9 @@ case "${mode}" in
     systemctl restart maze-dashboard.service
     ;;
   status)
+    echo "Release: $(readlink -f /srv/maze/current)"
+    echo "Physical world: ${physical_world}"
+    echo "Default profile: normal-v1"
     systemctl --no-pager --full status \
       maze-dashboard.service \
       maze-webots-stream.service \

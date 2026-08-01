@@ -12,9 +12,13 @@ WorkingDirectory=/srv/maze/current
 Environment=HOME=/home/maze
 Environment=DISPLAY=:1
 Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=MAZE_SIM_HOST=127.0.0.1
 Environment=MAZE_SIM_PORT=8765
-ExecStart=/usr/local/bin/webots --batch --stdout --stderr --mode=realtime /srv/maze/current/simulation/webots/maze_car/worlds/maze_world.wbt
+Environment=MAZE_PHYSICAL_PROFILE_DIR=/srv/maze/current/simulation/webots/maze_car/config/physical_profiles
+Environment=MAZE_DEFAULT_PHYSICAL_PROFILE=normal-v1
+Environment=MAZE_PHYSICAL_PROFILE_ID=normal-v1
+ExecStart=/usr/local/bin/webots --batch --stdout --stderr --mode=realtime /srv/maze/current/simulation/webots/maze_car/worlds/maze_physical_world.wbt
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=15

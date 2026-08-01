@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -154,9 +155,16 @@ class PhysicalProfileRepository:
 
     def __init__(
         self,
-        directory: Path | str = DEFAULT_PHYSICAL_PROFILE_DIR,
+        directory: Path | str | None = None,
     ) -> None:
-        self.directory = Path(directory)
+        selected = (
+            os.environ.get("MAZE_PHYSICAL_PROFILE_DIR")
+            if directory is None
+            else directory
+        )
+        self.directory = Path(
+            selected or DEFAULT_PHYSICAL_PROFILE_DIR
+        )
 
     def get(
         self,

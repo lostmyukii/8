@@ -109,6 +109,7 @@ def test_truth_observer_has_an_evaluation_only_allowlist():
     truth = TruthObserver(FakeSupervisorNode()).observe(
         wheel_linear_left_mps=6.0,
         wheel_linear_right_mps=5.0,
+        axle_track_m=0.135,
         active_surface="normal",
         collision_count=3,
     )
@@ -132,6 +133,7 @@ def test_local_patch_surface_appears_only_inside_the_patch_bounds():
     ).observe(
         wheel_linear_left_mps=0.0,
         wheel_linear_right_mps=0.0,
+        axle_track_m=0.135,
         active_surface="local_patch",
         collision_count=0,
     )
@@ -140,12 +142,31 @@ def test_local_patch_surface_appears_only_inside_the_patch_bounds():
     ).observe(
         wheel_linear_left_mps=0.0,
         wheel_linear_right_mps=0.0,
+        axle_track_m=0.135,
         active_surface="local_patch",
         collision_count=0,
     )
 
     assert outside["active_surface"] == "normal"
     assert inside["active_surface"] == "local_patch"
+
+
+def test_local_patch_detects_when_either_drive_wheel_overlaps_edge():
+    class TurningPatchNode(PatchSupervisorNode):
+        def getOrientation(self):
+            return (0.0, 0.0, -1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 0.0)
+
+    truth = TruthObserver(
+        TurningPatchNode((0.3, 0.04, -0.9))
+    ).observe(
+        wheel_linear_left_mps=0.0,
+        wheel_linear_right_mps=0.0,
+        axle_track_m=0.135,
+        active_surface="local_patch",
+        collision_count=0,
+    )
+
+    assert truth["active_surface"] == "local_patch"
 
 
 def test_protocol_drops_whole_truth_from_fusion_and_filters_evaluation_fields():

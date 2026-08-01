@@ -35,6 +35,7 @@ class TruthObserver:
         *,
         wheel_linear_left_mps: float,
         wheel_linear_right_mps: float,
+        axle_track_m: float,
         active_surface: str,
         collision_count: int,
     ) -> dict[str, Any]:
@@ -106,6 +107,8 @@ class TruthObserver:
                 requested=str(active_surface),
                 x_m=position[0],
                 z_m=position[2],
+                yaw_deg=yaw_deg,
+                axle_track_m=axle_track_m,
             ),
             "collision_count": max(0, int(collision_count)),
         }
@@ -141,15 +144,31 @@ def _observed_surface(
     requested: str,
     x_m: float,
     z_m: float,
+    yaw_deg: float,
+    axle_track_m: float,
 ) -> str:
     if requested != "local_patch":
         return requested
-    inside = (
+    yaw_rad = math.radians(float(yaw_deg))
+    half_track_m = float(axle_track_m) / 2.0
+    if not math.isfinite(half_track_m) or half_track_m <= 0.0:
+        raise PhysicalDeviceError(
+            "SIM_PHYSICS_ERROR",
+            "truth axle track must be positive and finite",
+        )
+    lateral_x = math.cos(yaw_rad) * half_track_m
+    lateral_z = math.sin(yaw_rad) * half_track_m
+    contact_points = (
+        (float(x_m) - lateral_x, float(z_m) - lateral_z),
+        (float(x_m) + lateral_x, float(z_m) + lateral_z),
+    )
+    inside = any(
         _LOCAL_PATCH_X_BOUNDS_M[0]
-        <= float(x_m)
+        <= contact_x
         <= _LOCAL_PATCH_X_BOUNDS_M[1]
         and _LOCAL_PATCH_Z_BOUNDS_M[0]
-        <= float(z_m)
+        <= contact_z
         <= _LOCAL_PATCH_Z_BOUNDS_M[1]
+        for contact_x, contact_z in contact_points
     )
     return "local_patch" if inside else "normal"

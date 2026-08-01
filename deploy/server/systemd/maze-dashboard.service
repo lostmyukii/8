@@ -10,6 +10,9 @@ Group=maze
 WorkingDirectory=/srv/maze/current
 Environment=HOME=/home/maze
 Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=MAZE_ENV=production
+Environment=MAZE_DATA_DIR=/srv/maze/shared
 ExecStart=/srv/maze/current/.venv/bin/python /srv/maze/current/rdk_maze_tuner/dashboard/app.py --host 127.0.0.1 --port 8000 --tcp 127.0.0.1:8765 --timeout 3
 Restart=always
 RestartSec=5

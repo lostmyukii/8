@@ -1,0 +1,76 @@
+schema_version: 1
+scenarios:
+  - scenario_id: normal-p3-v1
+    physical_profile_id: normal-v1
+    physical_profile_digest: ab8ff43fb3947ac40f2d58c777c28b70172478152bb180cf035d334807b66e46
+    world: maze_physical_calibration.wbt
+    map_version_id: builtin-calibration-3x3
+    map_digest: 990addca20acb1e875b43cae9bad313516060f991a28de645d30d567ebfe6dcb
+    seed: 20260801
+    actions:
+      - {name: move_cell, target_ticks: 1350, speed: 0.10, repeat: 10}
+      - {name: turn_left, target_ticks: 573, speed: 0.35, repeat: 10}
+      - {name: turn_right, target_ticks: 573, speed: 0.35, repeat: 10}
+    expected_observations:
+      - low_mean_slip
+      - straight_heading_stable
+      - calibrated_distance_and_turn
+    acceptance_thresholds:
+      max_distance_error_mm: 15.0
+      max_heading_error_deg: 3.0
+      max_turn_error_deg: 3.0
+      min_success_rate: 0.90
+    timeout_ms: 180000
+
+  - scenario_id: low-p4-v1
+    physical_profile_id: low-v1
+    physical_profile_digest: bebeae5a9e13357085092ccc44e5a473ca57e4e604f917ab05a53ea356b070ae
+    world: maze_physical_calibration.wbt
+    map_version_id: builtin-calibration-3x3
+    map_digest: 990addca20acb1e875b43cae9bad313516060f991a28de645d30d567ebfe6dcb
+    seed: 20260801
+    actions:
+      - {name: move_cell, target_ticks: 1350, speed: 0.35, repeat: 3}
+    expected_observations:
+      - both_wheels_slip_more_than_normal
+      - encoder_distance_exceeds_truth_distance
+    acceptance_thresholds:
+      min_mean_abs_slip: 0.08
+      min_trajectory_difference_mm: 10.0
+    timeout_ms: 60000
+
+  - scenario_id: asymmetric-p4-v1
+    physical_profile_id: asymmetric-v1
+    physical_profile_digest: fbdd8bf39f4d05475629e7cf7b2970d406dbf9d0b4666661dc80754330a1c438
+    world: maze_physical_calibration.wbt
+    map_version_id: builtin-calibration-3x3
+    map_digest: 990addca20acb1e875b43cae9bad313516060f991a28de645d30d567ebfe6dcb
+    seed: 20260801
+    actions:
+      - {name: move_cell, target_ticks: 1350, speed: 0.35, repeat: 3}
+    expected_observations:
+      - left_right_slip_diverge
+      - heading_changes_from_normal
+    acceptance_thresholds:
+      min_slip_difference: 0.04
+      min_yaw_difference_deg: 1.0
+    timeout_ms: 60000
+
+  - scenario_id: local-patch-p4-v1
+    physical_profile_id: local-patch-v1
+    physical_profile_digest: 6c1626b38a0326e663ed98a0d39736e47c1ad97d0711db563ab983eec5d69f89
+    world: maze_physical_world.wbt
+    map_version_id: builtin-open-5x5
+    map_digest: 77259af666c22c590a6fd3079c883a05b85138a4fe568859645313754c78d356
+    seed: 20260801
+    actions:
+      - {name: move_cell, target_ticks: 2430, speed: 0.10, repeat: 4}
+      - {name: turn_right, target_ticks: 573, speed: 0.35, repeat: 1}
+      - {name: move_cell, target_ticks: 2430, speed: 0.10, repeat: 3}
+    expected_observations:
+      - surface_changes_on_patch_entry
+      - slip_spike_is_transient
+    acceptance_thresholds:
+      min_patch_slip_increase: 0.05
+      min_surface_transitions: 1
+    timeout_ms: 90000

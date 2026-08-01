@@ -149,7 +149,7 @@ body:
 
 motor:
   max_velocity_rad_s: 20.0
-  max_torque_nm: 0.18
+  max_torque_nm: 0.60
   response_time_s: 0.08
   pwm_dead_zone: 0.18
   left_gain: 1.0

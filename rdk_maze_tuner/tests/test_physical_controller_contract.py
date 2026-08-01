@@ -50,6 +50,8 @@ class FakeRobotNode:
                 "rotation",
                 "bodyMass",
                 "wheelMass",
+                "maxWheelVelocity",
+                "maxWheelTorque",
                 "centerOfMass",
                 "inertiaMatrix",
                 "leftContactMaterial",
@@ -58,6 +60,16 @@ class FakeRobotNode:
             )
         }
         self.reset_count = 0
+        self.saved_states = []
+        self.loaded_states = []
+        self.joints = {
+            name: FakeJoint()
+            for name in (
+                "LEFT_WHEEL_JOINT",
+                "RIGHT_WHEEL_JOINT",
+                "CASTER_JOINT",
+            )
+        }
 
     def getField(self, name):
         return self.fields.get(name)
@@ -65,11 +77,29 @@ class FakeRobotNode:
     def resetPhysics(self):
         self.reset_count += 1
 
+    def saveState(self, name):
+        self.saved_states.append(name)
+
+    def loadState(self, name):
+        self.loaded_states.append(name)
+
+    def getFromProtoDef(self, name):
+        return self.joints.get(name)
+
+
+class FakeJoint:
+    def __init__(self) -> None:
+        self.positions = []
+
+    def setJointPosition(self, position, index=1):
+        self.positions.append((position, index))
+
 
 class FakeSupervisor:
     def __init__(self, robot) -> None:
         self.robot = robot
         self.steps = []
+        self.physics_reset_count = 0
 
     def getSelf(self):
         return self.robot
@@ -80,6 +110,9 @@ class FakeSupervisor:
     def step(self, period):
         self.steps.append(period)
         return 0
+
+    def simulationResetPhysics(self):
+        self.physics_reset_count += 1
 
 
 class FakeMapLoader:
@@ -132,11 +165,14 @@ def test_world_configurator_applies_profile_and_resets_to_map_start():
 
     profile = PhysicalProfileRepository().get("normal-v1")
     world.configure_sensor_mode(ideal=True)
-    world.apply_profile(profile)
+    assert world.apply_profile(profile) is True
+    assert world.apply_profile(profile) is False
     world.reset_pose(compiled)
 
     assert robot.fields["bodyMass"].value == 1.08
     assert robot.fields["wheelMass"].value == 0.06
+    assert robot.fields["maxWheelVelocity"].value == 20.0
+    assert robot.fields["maxWheelTorque"].value == 0.60
     assert robot.fields["centerOfMass"].values[0] == (0.0, 0.07, 0.01)
     assert robot.fields["tofLookupTable"].values == [
         (0.03, 0.03, 0.0),
@@ -145,4 +181,22 @@ def test_world_configurator_applies_profile_and_resets_to_map_start():
     assert robot.fields["translation"].value == (-0.9, 0.0, 0.9)
     assert robot.fields["rotation"].value == (0.0, 1.0, 0.0, 0.0)
     assert robot.reset_count == 1
+    assert supervisor.physics_reset_count == 1
+    assert robot.joints["LEFT_WHEEL_JOINT"].positions == [(0.0, 1)]
+    assert robot.joints["RIGHT_WHEEL_JOINT"].positions == [(0.0, 1)]
+    assert robot.joints["CASTER_JOINT"].positions == [
+        (0.0, 1),
+        (0.0, 2),
+        (0.0, 3),
+    ]
     assert supervisor.steps == [8, 8, 8]
+
+    world.refresh_device_samples()
+
+    assert supervisor.steps == [8, 8, 8, 8, 8]
+
+    world.reset_pose(compiled)
+
+    assert robot.reset_count == 2
+    assert supervisor.physics_reset_count == 2
+    assert supervisor.steps == [8, 8, 8, 8, 8, 8, 8, 8]

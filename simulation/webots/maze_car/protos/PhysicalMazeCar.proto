@@ -21,7 +21,7 @@ PROTO PhysicalMazeCar [
     0 0 0
   ]
   field SFFloat maxWheelVelocity 20
-  field SFFloat maxWheelTorque 0.18
+  field SFFloat maxWheelTorque 0.60
   field MFVec3f tofLookupTable [
     0.03 0.03 0
     2 2 0
@@ -125,7 +125,7 @@ PROTO PhysicalMazeCar [
           }
         ]
       }
-      HingeJoint {
+      DEF LEFT_WHEEL_JOINT HingeJoint {
         jointParameters HingeJointParameters {
           position 0
           axis -1 0 0
@@ -202,7 +202,7 @@ PROTO PhysicalMazeCar [
           }
         }
       }
-      HingeJoint {
+      DEF RIGHT_WHEEL_JOINT HingeJoint {
         jointParameters HingeJointParameters {
           position 0
           axis -1 0 0
@@ -269,7 +269,7 @@ PROTO PhysicalMazeCar [
           }
         }
       }
-      BallJoint {
+      DEF CASTER_JOINT BallJoint {
         jointParameters BallJointParameters {
           anchor 0 0.012 -0.084
           dampingConstant 0.001

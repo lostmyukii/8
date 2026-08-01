@@ -14,6 +14,7 @@ SIMULATION_TRUTH_FIELDS = frozenset(
         "y_mm",
         "yaw_deg",
         "linear_speed_mm_s",
+        "body_longitudinal_speed_mm_s",
         "angular_velocity_dps",
         "left_slip_rate",
         "right_slip_rate",
@@ -21,6 +22,8 @@ SIMULATION_TRUTH_FIELDS = frozenset(
         "collision_count",
     }
 )
+_LOCAL_PATCH_X_BOUNDS_M = (0.25, 0.75)
+_LOCAL_PATCH_Z_BOUNDS_M = (-0.875, -0.375)
 
 
 class TruthObserver:
@@ -71,6 +74,10 @@ class TruthObserver:
             math.atan2(forward_x, -forward_z)
         ) % 360.0
         linear_speed_mps = math.hypot(velocity[0], velocity[2])
+        body_longitudinal_mps = (
+            velocity[0] * forward_x
+            + velocity[2] * forward_z
+        )
         return {
             "x_mm": round(position[0] * 1000.0, 6),
             "y_mm": round(position[2] * 1000.0, 6),
@@ -79,34 +86,70 @@ class TruthObserver:
                 linear_speed_mps * 1000.0,
                 6,
             ),
+            "body_longitudinal_speed_mm_s": round(
+                body_longitudinal_mps * 1000.0,
+                6,
+            ),
             "angular_velocity_dps": round(
                 math.degrees(velocity[4]),
                 6,
             ),
-            "left_slip_rate": _truth_slip(
+            "left_slip_rate": compute_truth_slip_rate(
                 wheel_linear_left_mps,
-                linear_speed_mps,
+                body_longitudinal_mps,
             ),
-            "right_slip_rate": _truth_slip(
+            "right_slip_rate": compute_truth_slip_rate(
                 wheel_linear_right_mps,
-                linear_speed_mps,
+                body_longitudinal_mps,
             ),
-            "active_surface": str(active_surface),
+            "active_surface": _observed_surface(
+                requested=str(active_surface),
+                x_m=position[0],
+                z_m=position[2],
+            ),
             "collision_count": max(0, int(collision_count)),
         }
 
 
-def _truth_slip(
+def compute_truth_slip_rate(
     wheel_linear_mps: float,
-    body_linear_mps: float,
+    body_longitudinal_mps: float,
+    *,
+    epsilon: float = 0.001,
 ) -> float:
-    wheel_speed = abs(float(wheel_linear_mps))
-    if wheel_speed < 0.001:
-        return 0.0 if body_linear_mps < 0.001 else 1.0
+    values = (
+        float(wheel_linear_mps),
+        float(body_longitudinal_mps),
+        float(epsilon),
+    )
+    if not all(math.isfinite(value) for value in values):
+        raise PhysicalDeviceError(
+            "SIM_PHYSICS_ERROR",
+            "truth slip inputs must be finite",
+        )
+    if epsilon <= 0:
+        raise ValueError("truth slip epsilon must be positive")
     return round(
-        max(
-            0.0,
-            min(1.0, 1.0 - abs(float(body_linear_mps)) / wheel_speed),
-        ),
+        (values[0] - values[1])
+        / max(abs(values[0]), values[2]),
         6,
     )
+
+
+def _observed_surface(
+    *,
+    requested: str,
+    x_m: float,
+    z_m: float,
+) -> str:
+    if requested != "local_patch":
+        return requested
+    inside = (
+        _LOCAL_PATCH_X_BOUNDS_M[0]
+        <= float(x_m)
+        <= _LOCAL_PATCH_X_BOUNDS_M[1]
+        and _LOCAL_PATCH_Z_BOUNDS_M[0]
+        <= float(z_m)
+        <= _LOCAL_PATCH_Z_BOUNDS_M[1]
+    )
+    return "local_patch" if inside else "normal"

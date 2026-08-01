@@ -152,6 +152,7 @@ def test_straight_control_uses_encoder_difference_and_imu_heading():
     )
 
     assert output.target_velocity_left_rad_s < output.target_velocity_right_rad_s
+    assert output.motor_available_torque_nm == pytest.approx(0.18)
     assert output.telemetry["encoder_balance_error_ticks"] == 10
     assert output.telemetry["heading_error_deg"] < 0
 
@@ -200,6 +201,7 @@ def test_turns_command_opposite_wheel_velocities(name, left_sign, right_sign):
 
     assert output.target_velocity_left_rad_s * left_sign > 0
     assert output.target_velocity_right_rad_s * right_sign > 0
+    assert output.motor_available_torque_nm == pytest.approx(0.60)
     assert output.event is None
 
 
@@ -222,8 +224,8 @@ def test_turn_uses_heading_for_slowdown_after_encoder_target_is_reached():
     )
 
     assert output.state == "TURNING_LEFT"
-    assert abs(output.target_velocity_left_rad_s) > 4.0
-    assert abs(output.target_velocity_right_rad_s) > 4.0
+    assert abs(output.target_velocity_left_rad_s) > 2.0
+    assert abs(output.target_velocity_right_rad_s) > 2.0
 
 
 def test_turn_can_settle_from_heading_after_minimum_encoder_progress():
@@ -245,6 +247,130 @@ def test_turn_can_settle_from_heading_after_minimum_encoder_progress():
     )
 
     assert settling.state == "SETTLING"
+
+
+def test_turn_crossing_is_latched_when_a_control_step_passes_the_target():
+    control = controller(angle_tolerance_deg=1.0)
+    control.start(
+        ActionRequest("turn-crossing", "turn_left", 100, 0.5),
+        sample=sample(ts_ms=0, yaw_deg=0.0),
+        now_ms=0,
+    )
+    before = control.tick(
+        sample=sample(
+            ts_ms=8,
+            enc_left=-80,
+            enc_right=80,
+            yaw_deg=272.0,
+        ),
+        now_ms=8,
+    )
+    crossed = control.tick(
+        sample=sample(
+            ts_ms=16,
+            enc_left=-90,
+            enc_right=90,
+            yaw_deg=268.0,
+        ),
+        now_ms=16,
+    )
+
+    assert before.state == "TURNING_LEFT"
+    assert crossed.state == "SETTLING"
+    assert crossed.event is None
+    assert crossed.motor_available_torque_nm == pytest.approx(0.60)
+
+
+def test_turn_predictively_brakes_from_imu_yaw_rate():
+    control = controller(angle_tolerance_deg=1.0)
+    control.start(
+        ActionRequest("turn-brake", "turn_right", 100, 0.5),
+        sample=sample(ts_ms=0, yaw_deg=0.0),
+        now_ms=0,
+    )
+
+    braking = control.tick(
+        sample=sample(
+            ts_ms=8,
+            enc_left=80,
+            enc_right=-80,
+            yaw_deg=80.0,
+            yaw_rate=300.0,
+        ),
+        now_ms=8,
+    )
+
+    assert braking.state == "SETTLING"
+    assert braking.motor_available_torque_nm == pytest.approx(0.60)
+
+
+def test_turn_resumes_low_speed_correction_after_predictive_braking_coasts():
+    control = controller(angle_tolerance_deg=1.0)
+    control.start(
+        ActionRequest("turn-correct", "turn_left", 100, 0.5),
+        sample=sample(ts_ms=0, yaw_deg=0.0),
+        now_ms=0,
+    )
+    control.tick(
+        sample=sample(
+            ts_ms=8,
+            enc_left=-80,
+            enc_right=80,
+            yaw_deg=275.0,
+            yaw_rate=-300.0,
+        ),
+        now_ms=8,
+    )
+
+    correction = control.tick(
+        sample=sample(
+            ts_ms=16,
+            enc_left=-90,
+            enc_right=90,
+            yaw_deg=265.0,
+            left_speed=0.0,
+            right_speed=0.0,
+        ),
+        now_ms=16,
+    )
+
+    assert correction.state == "TURNING_LEFT"
+    assert correction.event is None
+
+
+def test_settling_does_not_report_motor_stall_after_wheels_are_stopped():
+    control = controller(
+        stall_timeout_ms=20,
+        heartbeat_timeout_ms=5000,
+        action_timeout_ms=5000,
+    )
+    control.start(
+        ActionRequest("settle-no-stall", "turn_left", 100, 0.5),
+        sample=sample(ts_ms=0, yaw_deg=0.0),
+        now_ms=0,
+    )
+    entered = control.tick(
+        sample=sample(
+            ts_ms=8,
+            enc_left=-100,
+            enc_right=100,
+            yaw_deg=270.0,
+        ),
+        now_ms=8,
+    )
+    stopped = control.tick(
+        sample=sample(
+            ts_ms=100,
+            enc_left=-100,
+            enc_right=100,
+            yaw_deg=270.0,
+        ),
+        now_ms=100,
+    )
+
+    assert entered.state == "SETTLING"
+    assert stopped.state == "SETTLING"
+    assert stopped.event is None
 
 
 def test_zero_turn_target_derives_ticks_from_profile_geometry():
@@ -416,6 +542,33 @@ def test_persistent_wheelspin_uses_encoder_and_external_motion_evidence():
 
     assert output.event["code"] == "WHEELSPIN_PERSISTENT"
     assert output.event["action_id"] == "spin-1"
+
+
+def test_open_space_without_a_range_target_does_not_fake_wheelspin():
+    control = controller(
+        wheelspin_timeout_ms=20,
+        heartbeat_timeout_ms=200,
+        stall_timeout_ms=200,
+    )
+    control.start(
+        ActionRequest("open-space", "move_cell", 500, 0.8),
+        sample=sample(ts_ms=0, front_mm=2000.0),
+        now_ms=0,
+    )
+
+    output = control.tick(
+        sample=sample(
+            ts_ms=24,
+            enc_left=100,
+            enc_right=100,
+            left_speed=12.0,
+            right_speed=12.0,
+            front_mm=2000.0,
+        ),
+        now_ms=24,
+    )
+
+    assert output.event is None
 
 
 @pytest.mark.parametrize(("method", "code"), [("pause", "PAUSED"), ("stop", "STOPPED")])

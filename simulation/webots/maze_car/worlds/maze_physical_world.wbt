@@ -144,7 +144,7 @@ Solid {
   }
 }
 DEF LOW_FRICTION_PATCH Solid {
-  translation 0.625 0.001 -0.625
+  translation 0.5 0.001 -0.625
   children [
     Shape {
       appearance PBRAppearance {

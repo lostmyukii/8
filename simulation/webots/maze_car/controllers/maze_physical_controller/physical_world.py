@@ -41,6 +41,7 @@ class PhysicalWorldConfigurator:
         self._settle_steps = max(0, int(settle_steps))
         self._basic_time_step_ms = int(basic_time_step_ms)
         self._compiled: CompiledMap | None = None
+        self._applied_profile_digest: str | None = None
 
     def load_map(self, definition: MapDefinition) -> CompiledMap:
         compiled = self._map_loader.load(definition)
@@ -49,9 +50,19 @@ class PhysicalWorldConfigurator:
         self._compiled = compiled
         return compiled
 
-    def apply_profile(self, profile: PhysicalProfile) -> None:
+    def apply_profile(self, profile: PhysicalProfile) -> bool:
+        if self._applied_profile_digest == profile.digest:
+            return False
         self._set_float("bodyMass", profile.body.body_mass_kg)
         self._set_float("wheelMass", profile.body.wheel_mass_kg)
+        self._set_float(
+            "maxWheelVelocity",
+            profile.motor.max_velocity_rad_s,
+        )
+        self._set_float(
+            "maxWheelTorque",
+            profile.motor.max_torque_nm,
+        )
         self._set_vector_item(
             "centerOfMass",
             0,
@@ -63,6 +74,8 @@ class PhysicalWorldConfigurator:
         left_material, right_material = _wheel_materials(profile)
         self._set_text("leftContactMaterial", left_material)
         self._set_text("rightContactMaterial", right_material)
+        self._applied_profile_digest = profile.digest
+        return True
 
     def configure_sensor_mode(self, *, ideal: bool) -> None:
         # Keep Webots' native noise disabled.  The ESP32-like adapter owns the
@@ -100,10 +113,46 @@ class PhysicalWorldConfigurator:
                 _HEADING_ROTATIONS[active_map.start_heading],
             ]
         )
+        self._reset_joint_positions()
         self._robot.resetPhysics()
+        reset_all_physics = getattr(
+            self._supervisor,
+            "simulationResetPhysics",
+            None,
+        )
+        if reset_all_physics is not None:
+            reset_all_physics()
+        self._settle()
+
+    def refresh_device_samples(self, *, steps: int = 2) -> None:
+        """Advance newly enabled Webots sensors past their first sample."""
+
+        for _ in range(max(1, int(steps))):
+            if self._supervisor.step(self._basic_time_step_ms) == -1:
+                break
+
+    def _settle(self) -> None:
         for _ in range(self._settle_steps):
             if self._supervisor.step(self._basic_time_step_ms) == -1:
                 break
+
+    def _reset_joint_positions(self) -> None:
+        get_from_proto = getattr(self._robot, "getFromProtoDef", None)
+        if get_from_proto is None:
+            return
+        joint_specs = (
+            ("LEFT_WHEEL_JOINT", (1,)),
+            ("RIGHT_WHEEL_JOINT", (1,)),
+            ("CASTER_JOINT", (1, 2, 3)),
+        )
+        for name, axes in joint_specs:
+            joint = get_from_proto(name)
+            if joint is None:
+                raise RuntimeError(
+                    f"physical robot joint is missing: {name}"
+                )
+            for axis in axes:
+                joint.setJointPosition(0.0, axis)
 
     def _required_field(self, name: str) -> Any:
         field = self._robot.getField(name)

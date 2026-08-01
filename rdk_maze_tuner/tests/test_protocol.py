@@ -58,6 +58,7 @@ def test_simulation_truth_is_strictly_evaluation_only():
                 "yaw_deg": 30,
                 "linear_speed_mm_s": 50,
                 "angular_velocity_dps": 5,
+                "body_longitudinal_speed_mm_s": 45,
                 "left_slip_rate": 0.1,
                 "right_slip_rate": 0.2,
                 "active_surface": "normal",
@@ -69,3 +70,29 @@ def test_simulation_truth_is_strictly_evaluation_only():
 
     assert frozenset(truth) == SIMULATION_TRUTH_FIELDS
     assert "cell" not in truth
+
+
+def test_simulation_truth_keeps_signed_formula_slip_but_not_fusion_access():
+    message = {
+        "enc_left": 10,
+        "enc_right": 10,
+        "sim_truth": {
+            "x_mm": 0,
+            "y_mm": 0,
+            "yaw_deg": 0,
+            "body_longitudinal_speed_mm_s": -20,
+            "left_slip_rate": -0.75,
+            "right_slip_rate": 1.25,
+        },
+    }
+
+    truth = extract_simulation_truth(message)
+    fusion = __import__(
+        "rdk_maze_tuner.core.protocol",
+        fromlist=["extract_fusion_telemetry"],
+    ).extract_fusion_telemetry(message)
+
+    assert truth["left_slip_rate"] == -0.75
+    assert truth["right_slip_rate"] == 1.25
+    assert truth["body_longitudinal_speed_mm_s"] == -20
+    assert "sim_truth" not in fusion

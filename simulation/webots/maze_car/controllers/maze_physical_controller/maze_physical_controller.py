@@ -212,7 +212,7 @@ def _run_physical_protocol(robot: Supervisor) -> None:
     world = PhysicalWorldConfigurator(
         robot,
         map_loader=WebotsMapLoader(robot),
-        settle_steps=5,
+        settle_steps=100,
         basic_time_step_ms=time_step_ms,
     )
     ideal_sensor_mode = (

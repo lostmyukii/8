@@ -92,6 +92,7 @@ class FakeDeviceAdapter:
     def apply_profile(self, profile) -> None:
         self.profile = profile
         self.events.append(("profile", profile.profile_id))
+        self.reset()
 
 
 class FakeWorld:
@@ -109,6 +110,9 @@ class FakeWorld:
         self.events.append(
             ("pose", compiled.start_cell, compiled.start_heading)
         )
+
+    def refresh_device_samples(self) -> None:
+        self.events.append(("refresh_devices",))
 
 
 class FakeTruthObserver:
@@ -242,6 +246,7 @@ def test_profile_digest_is_verified_and_applied_only_on_reset_boundary():
     assert ("profile", "low-v1") in world.events
     assert ("profile", "low-v1") in device.events
     assert ("reset",) in device.events
+    assert world.events[-1] == ("refresh_devices",)
 
 
 def test_load_map_keeps_version_and_digest_contract_until_atomic_reset():

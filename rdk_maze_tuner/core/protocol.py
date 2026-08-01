@@ -34,6 +34,7 @@ SIMULATION_TRUTH_FIELDS = frozenset(
         "y_mm",
         "yaw_deg",
         "linear_speed_mm_s",
+        "body_longitudinal_speed_mm_s",
         "angular_velocity_dps",
         "left_slip_rate",
         "right_slip_rate",
@@ -128,6 +129,7 @@ def extract_simulation_truth(
         result[key] = _truth_number(truth, key, required=True)
     for key in (
         "linear_speed_mm_s",
+        "body_longitudinal_speed_mm_s",
         "angular_velocity_dps",
         "left_slip_rate",
         "right_slip_rate",
@@ -174,10 +176,6 @@ def _truth_number(
         ) from exc
     if not math.isfinite(number):
         raise ProtocolError(f"sim_truth.{key} must be finite")
-    if key in ("left_slip_rate", "right_slip_rate") and not (
-        0.0 <= number <= 1.0
-    ):
-        raise ProtocolError(f"sim_truth.{key} must be between 0 and 1")
     if key == "linear_speed_mm_s" and number < 0:
         raise ProtocolError(
             "sim_truth.linear_speed_mm_s must not be negative"

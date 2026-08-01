@@ -30,17 +30,23 @@ class ActionRequest:
 class ActionControlConfig:
     default_target_ticks: int = 1350
     position_tolerance_ticks: int = 12
-    angle_tolerance_deg: float = 4.0
+    angle_tolerance_deg: float = 2.0
     settle_speed_rad_s: float = 0.45
     settle_ticks_required: int = 4
     slowdown_ticks: int = 240
     turn_slowdown_angle_deg: float = 45.0
+    turn_heading_velocity_gain: float = 0.04
+    turn_min_velocity_rad_s: float = 1.0
+    turn_crossing_limit_deg: float = 3.0
+    turn_brake_horizon_s: float = 0.035
     turn_progress_floor_ratio: float = 0.5
     minimum_speed_scale: float = 0.22
+    move_torque_scale: float = 0.30
+    turn_torque_scale: float = 1.0
     danger_stop_mm: float = 60.0
-    action_timeout_ms: int = 8000
+    action_timeout_ms: int = 12000
     heartbeat_timeout_ms: int = 1200
-    stall_timeout_ms: int = 900
+    stall_timeout_ms: int = 2500
     stall_progress_ticks: int = 2
     wheelspin_timeout_ms: int = 1800
     wheelspin_predicted_mm: float = 120.0
@@ -50,8 +56,8 @@ class ActionControlConfig:
     collision_speed_rad_s: float = 0.6
     encoder_balance_gain: float = 0.025
     heading_gain: float = 0.03
-    pid_kp: float = 0.09
-    pid_ki: float = 0.03
+    pid_kp: float = 0.03
+    pid_ki: float = 0.005
     pid_kd: float = 0.0
     pid_integral_limit: float = 4.0
 
@@ -64,6 +70,10 @@ class ActionControlConfig:
             self.settle_ticks_required,
             self.slowdown_ticks,
             self.turn_slowdown_angle_deg,
+            self.turn_heading_velocity_gain,
+            self.turn_min_velocity_rad_s,
+            self.turn_crossing_limit_deg,
+            self.turn_brake_horizon_s,
             self.danger_stop_mm,
             self.action_timeout_ms,
             self.heartbeat_timeout_ms,
@@ -87,6 +97,14 @@ class ActionControlConfig:
             raise ValueError(
                 "turn_progress_floor_ratio must be between 0 and 1"
             )
+        if not 0 < self.move_torque_scale <= 1:
+            raise ValueError(
+                "move_torque_scale must be between 0 and 1"
+            )
+        if not 0 < self.turn_torque_scale <= 1:
+            raise ValueError(
+                "turn_torque_scale must be between 0 and 1"
+            )
 
 
 @dataclass(frozen=True)
@@ -98,6 +116,7 @@ class ActionControlOutput:
     target_velocity_right_rad_s: float
     motor_velocity_left_rad_s: float
     motor_velocity_right_rad_s: float
+    motor_available_torque_nm: float
     motor_torque_left_nm: float
     motor_torque_right_nm: float
     event: dict[str, Any] | None
@@ -150,6 +169,9 @@ class PhysicalActionController:
         self._start_front_mm = 0.0
         self._last_heartbeat_ms = 0
         self._last_progress_ticks = 0.0
+        self._last_heading_error_abs = 180.0
+        self._previous_heading_error_deg = 0.0
+        self._turn_target_crossed = False
         self._last_progress_ms = 0
         self._settled_ticks = 0
         self._wheelspin_range_motion_mm = 0.0
@@ -203,6 +225,9 @@ class PhysicalActionController:
         self._start_front_mm = sample.raw_front_mm
         self._last_heartbeat_ms = int(now_ms)
         self._last_progress_ticks = 0.0
+        self._last_heading_error_abs = 180.0
+        self._previous_heading_error_deg = self._heading_error(sample)
+        self._turn_target_crossed = False
         self._last_progress_ms = int(now_ms)
         self._settled_ticks = 0
         self._wheelspin_range_motion_mm = 0.0
@@ -255,11 +280,47 @@ class PhysicalActionController:
                 code=failure[0],
                 message=failure[1],
                 now_ms=now,
+                sample=sample,
             )
 
         progress, left_delta, right_delta = self._progress(sample)
         remaining = max(0.0, self._active.target_ticks - progress)
         heading_error = self._heading_error(sample)
+        if self._active.name != "move_cell":
+            wheel_yaw_rate_dps = math.degrees(
+                self.profile.geometry.wheel_radius_m
+                * abs(
+                    sample.wheel_speed_right_rad_s
+                    - sample.wheel_speed_left_rad_s
+                )
+                / self.profile.geometry.axle_track_m
+            )
+            braking_window = (
+                self.config.angle_tolerance_deg
+                + max(
+                    abs(sample.yaw_rate_dps),
+                    wheel_yaw_rate_dps,
+                )
+                * self.config.turn_brake_horizon_s
+            )
+            predictive_brake = (
+                heading_error * sample.yaw_rate_dps > 0.0
+                and abs(heading_error) <= braking_window
+            )
+            crossed = (
+                self._previous_heading_error_deg * heading_error < 0.0
+                and min(
+                    abs(self._previous_heading_error_deg),
+                    abs(heading_error),
+                )
+                <= self.config.turn_crossing_limit_deg
+            )
+            self._turn_target_crossed = (
+                self._turn_target_crossed
+                or predictive_brake
+                or crossed
+            )
+            self._previous_heading_error_deg = heading_error
 
         if self.state == "SETTLING":
             return self._tick_settling(
@@ -272,7 +333,10 @@ class PhysicalActionController:
         if self._position_converged(
             progress=progress,
             remaining=remaining,
-        ) and self._angle_converged(heading_error):
+        ) and (
+            self._angle_converged(heading_error)
+            or self._turn_target_crossed
+        ):
             self.state = "SETTLING"
             self._settled_ticks = 0
             return self._zero_output(
@@ -347,11 +411,27 @@ class PhysicalActionController:
                 "acceleration, range, and wheel-speed evidence imply collision",
             )
 
+        # SETTLING deliberately commands zero wheel velocity.  Encoder
+        # progress and wheelspin watchdogs apply only while the controller is
+        # still driving; global action/heartbeat timeouts remain active.
+        if self.state == "SETTLING":
+            return None
+
         progress, _left_delta, _right_delta = self._progress(sample)
+        heading_progress = False
+        if self._active.name != "move_cell":
+            heading_error_abs = abs(self._heading_error(sample))
+            heading_progress = (
+                heading_error_abs
+                <= self._last_heading_error_abs - 0.2
+            )
+            if heading_progress:
+                self._last_heading_error_abs = heading_error_abs
         if (
             progress
             >= self._last_progress_ticks
             + self.config.stall_progress_ticks
+            or heading_progress
         ):
             self._last_progress_ticks = progress
             self._last_progress_ms = now_ms
@@ -367,11 +447,17 @@ class PhysicalActionController:
         external_mm = abs(
             self._start_front_mm - sample.raw_front_mm
         )
-        self._wheelspin_range_motion_mm = external_mm
+        self._wheelspin_range_motion_mm = max(
+            self._wheelspin_range_motion_mm,
+            external_mm,
+        )
         if (
             self._active.name == "move_cell"
+            and self._start_front_mm
+            < self.profile.tof.max_range_m * 1000.0 - 50.0
             and predicted_mm >= self.config.wheelspin_predicted_mm
-            and external_mm <= self.config.wheelspin_external_mm
+            and self._wheelspin_range_motion_mm
+            <= self.config.wheelspin_external_mm
             and now_ms - self._start_ms
             >= self.config.wheelspin_timeout_ms
         ):
@@ -395,12 +481,42 @@ class PhysicalActionController:
             abs(sample.wheel_speed_left_rad_s),
             abs(sample.wheel_speed_right_rad_s),
         ) <= self.config.settle_speed_rad_s
+        angle_converged = self._angle_converged(heading_error)
+        if (
+            self._active.name != "move_cell"
+            and low_speed
+            and not angle_converged
+        ):
+            # Predictive braking may intentionally stop before or just after
+            # the target. Once stationary, close the remaining IMU error with
+            # another low-speed turn phase instead of accepting the coast.
+            self.state = _ACTION_STATES[self._active.name]
+            self._turn_target_crossed = False
+            self._previous_heading_error_deg = heading_error
+            self._settled_ticks = 0
+            self._left_pid.reset()
+            self._right_pid.reset()
+            self._motor_model.reset()
+            return self._zero_output(
+                event=None,
+                telemetry=self._telemetry(
+                    progress=progress,
+                    remaining=remaining,
+                    left_delta=(
+                        sample.enc_left - self._start_encoders[0]
+                    ),
+                    right_delta=(
+                        sample.enc_right - self._start_encoders[1]
+                    ),
+                    heading_error=heading_error,
+                ),
+            )
         if (
             self._position_converged(
                 progress=progress,
                 remaining=remaining,
             )
-            and self._angle_converged(heading_error)
+            and angle_converged
             and low_speed
         ):
             self._settled_ticks += 1
@@ -451,29 +567,38 @@ class PhysicalActionController:
         assert self._active is not None
         speed_fraction = min(1.0, abs(self._active.speed))
         base = speed_fraction * self.profile.motor.max_velocity_rad_s
-        slowdown_ratio = (
-            remaining / self.config.slowdown_ticks
-            if self._active.name == "move_cell"
-            else (
-                abs(heading_error)
-                / self.config.turn_slowdown_angle_deg
-            )
-        )
-        scale = max(
-            self.config.minimum_speed_scale,
-            min(1.0, slowdown_ratio),
-        )
-        base *= scale
         if self._active.name == "move_cell":
+            slowdown_ratio = remaining / self.config.slowdown_ticks
+            scale = max(
+                self.config.minimum_speed_scale,
+                min(1.0, slowdown_ratio),
+            )
+            base *= scale
             encoder_error = left_delta - right_delta
             correction = (
                 encoder_error * self.config.encoder_balance_gain
                 - heading_error * self.config.heading_gain
             )
             return (base - correction, base + correction)
-        if self._active.name == "turn_left":
-            return (-base, base)
-        return (base, -base)
+        turn_velocity = min(
+            base,
+            max(
+                self.config.turn_min_velocity_rad_s,
+                abs(heading_error)
+                * self.config.turn_heading_velocity_gain,
+            ),
+        )
+        steering_error = heading_error
+        if (
+            self._active.name == "turn_back"
+            and abs(heading_error) >= 179.999
+        ):
+            steering_error = 180.0
+        signed_velocity = math.copysign(
+            turn_velocity,
+            steering_error,
+        )
+        return (signed_velocity, -signed_velocity)
 
     def _closed_loop_output(
         self,
@@ -568,11 +693,13 @@ class PhysicalActionController:
         code: str,
         message: str,
         now_ms: int,
+        sample: PhysicalDeviceSample | None = None,
     ) -> ActionControlOutput:
         event = self._error_event(
             code=code,
             message=message,
             now_ms=now_ms,
+            sample=sample,
         )
         self.state = "ERROR"
         self._active = None
@@ -732,6 +859,10 @@ class PhysicalActionController:
             target_velocity_right_rad_s=0.0,
             motor_velocity_left_rad_s=0.0,
             motor_velocity_right_rad_s=0.0,
+            # Velocity zero with available torque models the ESP32 driver's
+            # active brake. Releasing torque here lets the physical body coast
+            # after done/error and corrupts the final pose.
+            motor_available_torque_nm=self.profile.motor.max_torque_nm,
             motor_torque_left_nm=0.0,
             motor_torque_right_nm=0.0,
             event=event,
@@ -755,6 +886,14 @@ class PhysicalActionController:
             target_velocity_right_rad_s=right_target,
             motor_velocity_left_rad_s=motor.left_velocity_rad_s,
             motor_velocity_right_rad_s=motor.right_velocity_rad_s,
+            motor_available_torque_nm=(
+                self.profile.motor.max_torque_nm
+                * (
+                    self.config.move_torque_scale
+                    if self.state == "MOVING_CELL"
+                    else self.config.turn_torque_scale
+                )
+            ),
             motor_torque_left_nm=motor.left_torque_nm,
             motor_torque_right_nm=motor.right_torque_nm,
             event=event,

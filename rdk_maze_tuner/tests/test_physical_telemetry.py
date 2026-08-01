@@ -1,5 +1,7 @@
 from dataclasses import fields
 
+import pytest
+
 from rdk_maze_tuner.core.pose_fusion import PoseFusion
 from rdk_maze_tuner.core.pose_types import (
     PoseFusionConfig,
@@ -36,7 +38,15 @@ class FakeSupervisorNode:
         return (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
 
     def getVelocity(self):
-        return (3.0, 0.0, 4.0, 0.0, 2.0, 0.0)
+        return (3.0, 0.0, -4.0, 0.0, 2.0, 0.0)
+
+
+class PatchSupervisorNode(FakeSupervisorNode):
+    def __init__(self, position):
+        self.position = position
+
+    def getPosition(self):
+        return self.position
 
 
 def device_sample() -> PhysicalDeviceSample:
@@ -108,11 +118,34 @@ def test_truth_observer_has_an_evaluation_only_allowlist():
     assert truth["y_mm"] == -2000.0
     assert truth["yaw_deg"] == 0.0
     assert truth["linear_speed_mm_s"] == 5000.0
+    assert truth["body_longitudinal_speed_mm_s"] == 4000.0
     assert truth["angular_velocity_dps"] > 114.0
-    assert truth["left_slip_rate"] > 0.16
-    assert truth["right_slip_rate"] == 0.0
+    assert truth["left_slip_rate"] == pytest.approx(1 / 3)
+    assert truth["right_slip_rate"] == pytest.approx(0.2)
     assert truth["active_surface"] == "normal"
     assert truth["collision_count"] == 3
+
+
+def test_local_patch_surface_appears_only_inside_the_patch_bounds():
+    outside = TruthObserver(
+        PatchSupervisorNode((0.0, 0.04, 0.0))
+    ).observe(
+        wheel_linear_left_mps=0.0,
+        wheel_linear_right_mps=0.0,
+        active_surface="local_patch",
+        collision_count=0,
+    )
+    inside = TruthObserver(
+        PatchSupervisorNode((0.625, 0.04, -0.625))
+    ).observe(
+        wheel_linear_left_mps=0.0,
+        wheel_linear_right_mps=0.0,
+        active_surface="local_patch",
+        collision_count=0,
+    )
+
+    assert outside["active_surface"] == "normal"
+    assert inside["active_surface"] == "local_patch"
 
 
 def test_protocol_drops_whole_truth_from_fusion_and_filters_evaluation_fields():
@@ -126,6 +159,7 @@ def test_protocol_drops_whole_truth_from_fusion_and_filters_evaluation_fields():
             "y_mm": -1e12,
             "yaw_deg": 179.0,
             "linear_speed_mm_s": 999999.0,
+            "body_longitudinal_speed_mm_s": 999999.0,
             "angular_velocity_dps": -999999.0,
             "left_slip_rate": 1.0,
             "right_slip_rate": 1.0,
@@ -194,6 +228,7 @@ def test_extreme_truth_cannot_change_pose_fusion_or_slip_estimator():
             "y_mm": -1e12,
             "yaw_deg": 179.0,
             "linear_speed_mm_s": 1e9,
+            "body_longitudinal_speed_mm_s": 1e9,
             "angular_velocity_dps": -1e9,
             "left_slip_rate": 1.0,
             "right_slip_rate": 1.0,

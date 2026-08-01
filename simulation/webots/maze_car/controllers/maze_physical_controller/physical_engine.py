@@ -88,15 +88,15 @@ class PhysicalMazeEngine:
         self.map_digest = map_definition.content_digest
         self.param_version = 1
         self.params: dict[str, Any] = {
-            "base_speed": 0.35,
+            "base_speed": 0.1,
             "turn_speed": 0.5,
-            "pid_kp": 0.09,
-            "pid_ki": 0.03,
+            "pid_kp": 0.03,
+            "pid_ki": 0.005,
             "pid_kd": 0.0,
             "heading_gain": 0.03,
             "encoder_balance_gain": 0.025,
             "position_tolerance_ticks": 12,
-            "angle_tolerance_deg": 4.0,
+            "angle_tolerance_deg": 2.0,
             "settle_speed_rad_s": 0.45,
             "slowdown_ticks": 240,
         }
@@ -105,6 +105,7 @@ class PhysicalMazeEngine:
         self._pending_profile: PhysicalProfile | None = None
         self._pending_map: tuple[str, MapDefinition, CompiledMap] | None = None
         self._latest_sample = self._device.sample(timestamp_ms=0)
+        self._latest_sample.require_finite()
         self._latest_output = self._controller.tick(
             sample=self._latest_sample,
             now_ms=0,
@@ -224,11 +225,12 @@ class PhysicalMazeEngine:
         messages: list[dict[str, Any]] = []
         try:
             sample = self._device.sample(timestamp_ms=now_ms)
+            sample.require_finite()
             output = self._controller.tick(sample=sample, now_ms=now_ms)
             self._device.command_wheels(
                 left_velocity_rad_s=output.motor_velocity_left_rad_s,
                 right_velocity_rad_s=output.motor_velocity_right_rad_s,
-                torque_nm=self.profile.motor.max_torque_nm,
+                torque_nm=output.motor_available_torque_nm,
             )
         except PhysicalDeviceError as exc:
             self._device.safe_stop()
@@ -247,6 +249,8 @@ class PhysicalMazeEngine:
         if output.event is not None:
             event = dict(output.event)
             event["simulated"] = True
+            if event.get("code") == "COLLISION_SUSPECTED":
+                self._collision_count += 1
             messages.append(event)
             if event["type"] == "error":
                 self._device.safe_stop()
@@ -404,10 +408,13 @@ class PhysicalMazeEngine:
             self.map_digest = self.map_definition.content_digest
             self._pending_map = None
         self._world.apply_profile(self.profile)
-        self._device.apply_profile(self.profile)
         self.compiled_map = self._world.load_map(self.map_definition)
         self._world.reset_pose(self.compiled_map)
-        self._device.reset()
+        # Profile edits and Node.loadState() can regenerate nested devices.
+        # Rebind after the world reset, then advance enough simulation steps
+        # for newly enabled sensors to publish a fresh first sample.
+        self._device.apply_profile(self.profile)
+        self._world.refresh_device_samples()
         self._controller = self._new_controller()
         self._telemetry_provider = self._new_telemetry_provider()
         self._collision_count = 0
@@ -532,6 +539,9 @@ class PhysicalMazeEngine:
                 "state": output.state,
                 "pwm_left": output.pwm_left,
                 "pwm_right": output.pwm_right,
+                "motor_available_torque_nm": (
+                    output.motor_available_torque_nm
+                ),
                 "motor_torque_left_nm": output.motor_torque_left_nm,
                 "motor_torque_right_nm": output.motor_torque_right_nm,
                 "param_version": self.param_version,

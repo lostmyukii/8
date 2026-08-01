@@ -53,6 +53,7 @@ class PhysicalDeviceAdapter:
         sensor_noise_enabled: bool = True,
         sensor_dropout_enabled: bool = True,
     ) -> None:
+        self._robot = robot
         self.profile = profile
         self.sensor_noise_enabled = bool(sensor_noise_enabled)
         self.sensor_dropout_enabled = bool(sensor_dropout_enabled)
@@ -63,9 +64,13 @@ class PhysicalDeviceAdapter:
         self._encoder_origins: tuple[float, float] | None = None
         self._tof_filtered: dict[str, float] = {}
 
+        self._bind_devices()
+
+    def _bind_devices(self) -> None:
+        self._devices.clear()
         for name in DEVICE_NAMES:
             try:
-                device = robot.getDevice(name)
+                device = self._robot.getDevice(name)
             except Exception:
                 device = None
             if device is not None:
@@ -87,11 +92,13 @@ class PhysicalDeviceAdapter:
             for name in _MOTOR_NAMES:
                 motor = self._devices[name]
                 motor.setPosition(float("inf"))
-                motor.setAvailableTorque(profile.motor.max_torque_nm)
+                motor.setAvailableTorque(
+                    self.profile.motor.max_torque_nm
+                )
                 motor.setVelocity(0.0)
             for name in _SENSOR_NAMES:
                 self._devices[name].enable(
-                    profile.runtime.basic_time_step_ms
+                    self.profile.runtime.basic_time_step_ms
                 )
         except Exception as exc:
             self.safe_stop()
@@ -113,6 +120,9 @@ class PhysicalDeviceAdapter:
 
         self.safe_stop()
         self.profile = profile
+        # Changing a PROTO field can regenerate its Webots device nodes.
+        # Never keep motor/sensor handles across that reset boundary.
+        self._bind_devices()
         self.reset()
 
     def safe_stop(self) -> None:

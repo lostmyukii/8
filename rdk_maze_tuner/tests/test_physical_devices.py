@@ -112,6 +112,20 @@ def test_adapter_uses_exact_proto_names_and_enables_every_sensor():
             assert device.periods == [8]
 
 
+def test_profile_reset_rebinds_devices_after_proto_regeneration():
+    fake_devices = devices()
+    robot = FakeRobot(fake_devices)
+    adapter = PhysicalDeviceAdapter(robot, profile())
+    robot.requested_names.clear()
+
+    adapter.apply_profile(
+        PhysicalProfileRepository().get("low-v1")
+    )
+
+    assert tuple(robot.requested_names) == DEVICE_NAMES
+    assert adapter.profile.profile_id == "low-v1"
+
+
 def test_missing_core_device_stops_both_motors_and_raises_named_error():
     fake_devices = devices()
     fake_devices.pop("tof right")

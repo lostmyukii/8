@@ -7,10 +7,13 @@ from rdk_maze_tuner.dashboard.app import build_parser, create_app
 from rdk_maze_tuner.dashboard.runtime import SerialDashboardRuntime
 from rdk_maze_tuner.dashboard.state import DashboardState
 from rdk_maze_tuner.core.param_manager import ParamManager
+from rdk_maze_tuner.platform.auth import AuthService
+from rdk_maze_tuner.platform.database import Database
 
 
 PARAMS_PATH = Path("rdk_maze_tuner/config/params.yaml")
 LIMITS_PATH = Path("rdk_maze_tuner/config/limits.yaml")
+TEST_PASSWORD = "correct horse battery staple"
 
 
 class FakeDashboardClient:
@@ -61,8 +64,60 @@ def make_state(client=None):
     )
 
 
-def test_dashboard_serves_workspace_with_estop_control():
-    client = TestClient(create_app())
+def make_authenticated_client(tmp_path):
+    from argon2 import PasswordHasher
+
+    database = Database(tmp_path / "platform.sqlite3")
+    database.initialize()
+    auth = AuthService(
+        database=database,
+        password_hasher=PasswordHasher(
+            time_cost=1,
+            memory_cost=8_192,
+            parallelism=1,
+        ),
+    )
+    auth.create_user("operator-a", TEST_PASSWORD)
+    client = TestClient(
+        create_app(database=database, auth_service=auth),
+        base_url="https://testserver",
+    )
+    login = client.post(
+        "/api/auth/login",
+        json={"username": "operator-a", "password": TEST_PASSWORD},
+    )
+    csrf_token = login.json()["csrf_token"]
+    claim = client.post(
+        "/api/control/claim",
+        headers={"X-CSRF-Token": csrf_token},
+    )
+    client.headers.update(
+        {
+            "X-CSRF-Token": csrf_token,
+            "X-Control-Lease": claim.json()["lease_token"],
+        }
+    )
+    return client
+
+
+def make_test_app(tmp_path):
+    from argon2 import PasswordHasher
+
+    database = Database(tmp_path / "platform.sqlite3")
+    database.initialize()
+    auth = AuthService(
+        database=database,
+        password_hasher=PasswordHasher(
+            time_cost=1,
+            memory_cost=8_192,
+            parallelism=1,
+        ),
+    )
+    return create_app(database=database, auth_service=auth)
+
+
+def test_dashboard_serves_workspace_with_estop_control(tmp_path):
+    client = TestClient(make_test_app(tmp_path))
 
     response = client.get("/")
 
@@ -71,8 +126,8 @@ def test_dashboard_serves_workspace_with_estop_control():
     assert 'id="mazeMap"' in response.text
 
 
-def test_dashboard_state_contains_params_map_and_logs():
-    client = TestClient(create_app())
+def test_dashboard_state_contains_params_map_and_logs(tmp_path):
+    client = make_authenticated_client(tmp_path)
 
     response = client.get("/api/state")
 
@@ -86,8 +141,8 @@ def test_dashboard_state_contains_params_map_and_logs():
     assert isinstance(payload["logs"], list)
 
 
-def test_dashboard_param_update_validates_and_records_change():
-    client = TestClient(create_app())
+def test_dashboard_param_update_validates_and_records_change(tmp_path):
+    client = make_authenticated_client(tmp_path)
 
     response = client.post("/api/params", json={"updates": {"motor.base_speed": 0.26}})
 
@@ -100,8 +155,8 @@ def test_dashboard_param_update_validates_and_records_change():
     assert any(row["type"] == "param_change" for row in state["logs"])
 
 
-def test_dashboard_rejects_out_of_range_param_update():
-    client = TestClient(create_app())
+def test_dashboard_rejects_out_of_range_param_update(tmp_path):
+    client = make_authenticated_client(tmp_path)
 
     response = client.post("/api/params", json={"updates": {"motor.base_speed": 9.0}})
 
@@ -109,8 +164,8 @@ def test_dashboard_rejects_out_of_range_param_update():
     assert "motor.base_speed" in response.json()["detail"]
 
 
-def test_dashboard_estop_records_command_without_hardware():
-    client = TestClient(create_app())
+def test_dashboard_estop_records_command_without_hardware(tmp_path):
+    client = make_authenticated_client(tmp_path)
 
     response = client.post("/api/command/estop", json={"reason": "test"})
 
@@ -124,10 +179,10 @@ def test_dashboard_estop_records_command_without_hardware():
     assert state["logs"][-1]["payload"]["name"] == "estop"
 
 
-def test_dashboard_websocket_sends_initial_state_snapshot():
-    client = TestClient(create_app())
+def test_dashboard_websocket_sends_initial_state_snapshot(tmp_path):
+    client = make_authenticated_client(tmp_path)
 
-    with client.websocket_connect("/ws") as websocket:
+    with client.websocket_connect("wss://testserver/ws") as websocket:
         payload = websocket.receive_json()
 
     assert payload["type"] == "state"
@@ -167,8 +222,8 @@ def test_serial_runtime_heartbeat_once_records_ack():
     assert state.snapshot()["logs"][-1]["type"] == "heartbeat"
 
 
-def test_dashboard_frontend_uses_websocket_ping_refresh():
-    client = TestClient(create_app())
+def test_dashboard_frontend_uses_websocket_ping_refresh(tmp_path):
+    client = TestClient(make_test_app(tmp_path))
 
     response = client.get("/static/app.js")
 

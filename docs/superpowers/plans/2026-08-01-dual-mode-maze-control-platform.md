@@ -154,7 +154,7 @@ feat: add platform storage foundation
 - Modify: `rdk_maze_tuner/dashboard/app.py`
 - Modify: `requirements.txt`
 
-- [ ] **2.1 写账户和双会话失败测试**
+- [x] **2.1 写账户和双会话失败测试**
 
 覆盖：
 
@@ -166,7 +166,7 @@ feat: add platform storage foundation
 - 两个 TestClient 独立登录。
 - 未登录 API 返回 401。
 
-- [ ] **2.2 实现安全创建用户 CLI**
+- [x] **2.2 实现安全创建用户 CLI**
 
 命令：
 
@@ -176,7 +176,7 @@ feat: add platform storage foundation
 
 密码通过 TTY 安全输入两次，不接受命令行明文参数，不写日志。
 
-- [ ] **2.3 写控制权失败测试**
+- [x] **2.3 写控制权失败测试**
 
 覆盖：
 
@@ -187,11 +187,11 @@ feat: add platform storage foundation
 - 所有用户都能急停。
 - 非持有人不能 start/pause/stop/reset/mode/apply-param。
 
-- [ ] **2.4 实现 `ControlLeaseService`**
+- [x] **2.4 实现 `ControlLeaseService`**
 
 租约保存在 SQLite，所有状态改变 API 在服务端校验，不依赖前端按钮状态。
 
-- [ ] **2.5 接入 FastAPI 并回归**
+- [x] **2.5 接入 FastAPI 并回归**
 
 在 `requirements.txt` 明确加入 `argon2-cffi`；鉴权实现不得退回明文、可逆加密或通用快速哈希。
 
@@ -200,11 +200,21 @@ feat: add platform storage foundation
 .venv/bin/python -m pytest rdk_maze_tuner/tests -q
 ```
 
-- [ ] **2.6 提交检查点**
+- [x] **2.6 提交检查点**
 
 ```text
 feat: add authenticated control lease
 ```
+
+实施证据（2026-08-01）：
+
+- 初始 RED：`rdk_maze_tuner.admin`、`platform.auth` 和 `platform.control_lease` 不存在，测试在收集阶段失败。
+- 集成 RED：默认 API 改为认证保护后，5 个旧 Dashboard 测试按预期得到 401/4401；测试夹具改为真实登录和领取租约，没有增加测试绕过。
+- 事务 RED：过期会话撤销和过期租约清理最初被异常回滚；修复后撤销、清理和审计均持久化。
+- Task 2 目标测试：11 passed；完整 Python 回归：78 passed。
+- `compileall`、`uv pip check` 和 ESP32 PlatformIO 构建通过。
+- Argon2 依赖为 `argon2-cffi 25.1.0`；会话、CSRF 和租约原始令牌均不写入 SQLite。
+- 当前尚未创建 Task 4 的 start/pause/reset/mode 路由；现有 stop/action/apply-param/auto-tune 已统一使用服务端租约守卫，后续写路由必须复用同一守卫。
 
 ### Task 3：单一设备会话和模式适配器
 

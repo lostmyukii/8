@@ -8,6 +8,7 @@ from rdk_maze_tuner.platform.database import Database
 
 
 REQUIRED_TABLES = {
+    "audit_events",
     "users",
     "sessions",
     "control_lease",
@@ -48,7 +49,7 @@ def test_database_initializes_required_tables_and_is_repeatable(tmp_path):
     first_versions = database.initialize()
     second_versions = database.initialize()
 
-    assert first_versions == (1,)
+    assert first_versions == (1, 2)
     assert second_versions == ()
 
     with database.connection() as connection:
@@ -64,7 +65,8 @@ def test_database_initializes_required_tables_and_is_repeatable(tmp_path):
 
     assert REQUIRED_TABLES <= table_names
     assert [(row["version"], row["name"]) for row in migrations] == [
-        (1, "001_initial.sql")
+        (1, "001_initial.sql"),
+        (2, "002_auth_audit.sql"),
     ]
 
 

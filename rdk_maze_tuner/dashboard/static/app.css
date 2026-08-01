@@ -214,6 +214,7 @@ input:disabled {
 
 .login-form input,
 .task-context input,
+.task-context select,
 .param-input {
   width: 100%;
   min-height: 42px;

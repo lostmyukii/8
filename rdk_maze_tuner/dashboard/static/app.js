@@ -17,6 +17,7 @@ import {
   showNotice,
 } from "./render.js";
 import { bindControls } from "./controls.js";
+import { initializeMazeEditor } from "./maze_editor.js";
 
 let socket = null;
 let reconnectTimer = null;
@@ -93,6 +94,7 @@ bindControls({
   onAuthenticated: startLiveUpdates,
   onLogout: stopLiveUpdates,
 });
+initializeMazeEditor();
 
 async function bootstrap() {
   try {

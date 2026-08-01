@@ -27,12 +27,15 @@ class SimulationModeAdapter(ModeAdapter):
         *,
         endpoint: str = DEFAULT_SIMULATION_ENDPOINT,
         session_factory: Callable[[str], DeviceSession] = _open_simulation_session,
+        map_provider: Callable[[str], Any] | None = None,
         ready_timeout_s: float = 3.0,
     ) -> None:
         self.endpoint = endpoint
         self._session_factory = session_factory
+        self._map_provider = map_provider
         self._ready_timeout_s = ready_timeout_s
         self._session: DeviceSession | None = None
+        self._loaded_map: dict[str, Any] | None = None
 
     def preflight(self) -> dict[str, Any]:
         session = self._get_session()
@@ -51,6 +54,50 @@ class SimulationModeAdapter(ModeAdapter):
         map_version: str,
         param_version: str,
     ) -> dict[str, Any]:
+        if self._map_provider is not None:
+            version = self._map_provider(map_version)
+            if version is None:
+                raise ModeAdapterError(
+                    "MAP_NOT_FOUND",
+                    f"map version does not exist: {map_version}",
+                )
+            payload = (
+                version.to_dict()
+                if hasattr(version, "to_dict")
+                else dict(version)
+            )
+            version_id = str(
+                payload.get("version_id") or map_version
+            )
+            digest = str(payload.get("digest") or "")
+            definition = payload.get("definition")
+            load_ack = self._get_session().request_ack(
+                "load_map",
+                map_version_id=version_id,
+                digest=digest,
+                definition=definition,
+            )
+            self._validate_map_ack(
+                load_ack,
+                map_version_id=version_id,
+                digest=digest,
+            )
+            self._loaded_map = {
+                "map_version_id": version_id,
+                "digest": digest,
+            }
+            ack = self._get_session().request_ack(
+                "reset",
+                map_version_id=version_id,
+                digest=digest,
+                param_version=param_version,
+            )
+            self._validate_map_ack(
+                ack,
+                map_version_id=version_id,
+                digest=digest,
+            )
+            return self._result("reset", ack)
         ack = self._get_session().request_ack(
             "reset",
             map_version=map_version,
@@ -59,7 +106,11 @@ class SimulationModeAdapter(ModeAdapter):
         return self._result("reset", ack)
 
     def start(self) -> dict[str, Any]:
-        return self._result("start", self._get_session().request_ack("start"))
+        fields = self._loaded_map or {}
+        ack = self._get_session().request_ack("start", **fields)
+        if self._loaded_map is not None:
+            self._validate_map_ack(ack, **self._loaded_map)
+        return self._result("start", ack)
 
     def pause(self) -> dict[str, Any]:
         return self._result("pause", self._get_session().request_ack("pause"))
@@ -96,6 +147,11 @@ class SimulationModeAdapter(ModeAdapter):
             "status": (
                 "ONLINE" if session_snapshot["connected"] else "OFFLINE"
             ),
+            "loaded_map": (
+                None
+                if self._loaded_map is None
+                else dict(self._loaded_map)
+            ),
             **session_snapshot,
         }
 
@@ -121,3 +177,19 @@ class SimulationModeAdapter(ModeAdapter):
             "command": command,
             "ack": ack,
         }
+
+    @staticmethod
+    def _validate_map_ack(
+        ack: dict[str, Any],
+        *,
+        map_version_id: str,
+        digest: str,
+    ) -> None:
+        if (
+            ack.get("map_version_id") != map_version_id
+            or ack.get("digest") != digest
+        ):
+            raise ModeAdapterError(
+                "MAP_ACK_MISMATCH",
+                "simulation acknowledged a different map version or digest",
+            )

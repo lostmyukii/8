@@ -7,6 +7,7 @@
     <link rel="icon" href="data:,">
     <title>迷宫小车任务台</title>
     <link rel="stylesheet" href="/static/app.css">
+    <link rel="stylesheet" href="/static/maze_editor.css">
   </head>
   <body>
     <div id="globalNotice" class="global-notice" role="status" aria-live="polite"></div>
@@ -159,7 +160,9 @@
             <div class="task-context">
               <label>
                 <span>地图版本</span>
-                <input id="mapVersionInput" value="map-draft-v1">
+                <select id="mapVersionInput">
+                  <option value="">请先保存地图版本</option>
+                </select>
               </label>
               <label>
                 <span>参数版本</span>
@@ -244,6 +247,104 @@
             </header>
             <ol id="eventTimeline" class="event-timeline"></ol>
           </article>
+        </section>
+
+        <section id="mazeEditor" class="console-card maze-editor">
+          <header class="card-heading maze-editor__heading">
+            <div>
+              <p class="eyebrow">GRIDLINE BLUEPRINT</p>
+              <h2>规则迷宫描线台</h2>
+            </div>
+            <div class="maze-editor__version-meta">
+              <span id="mazeDraftState">未保存草稿</span>
+              <strong id="mazeDigest">digest --</strong>
+            </div>
+          </header>
+
+          <div class="maze-editor__workspace">
+            <div class="maze-stage">
+              <div class="maze-tools" role="toolbar" aria-label="迷宫描线工具">
+                <button id="mazeToolDraw" class="is-active" type="button">描墙</button>
+                <button id="mazeToolErase" type="button">擦除</button>
+                <button id="mazeSetStart" type="button">设起点</button>
+                <button id="mazeSetGoal" type="button">设终点</button>
+                <button id="mazeCalibrate" type="button">标定两点</button>
+                <span class="maze-tools__divider"></span>
+                <button id="mazeUndo" type="button" disabled>撤销</button>
+                <button id="mazeRedo" type="button" disabled>重做</button>
+              </div>
+
+              <div class="maze-canvas-shell">
+                <svg id="mazeCanvas" class="maze-canvas" role="img" aria-label="可描线的规则格子迷宫"></svg>
+                <div class="maze-canvas-legend">
+                  <span><i class="is-wall"></i>结构墙</span>
+                  <span><i class="is-start"></i>起点/车头</span>
+                  <span><i class="is-goal"></i>终点</span>
+                </div>
+              </div>
+
+              <p id="mazeEditorMessage" class="maze-editor__message" aria-live="polite">
+                沿格线拖动描墙；墙体会自动吸附为水平或垂直单位墙段。
+              </p>
+            </div>
+
+            <aside class="maze-inspector">
+              <div class="maze-inspector__block">
+                <span class="utility-label">地图与版本</span>
+                <label for="mazeName">地图名称</label>
+                <input id="mazeName" value="实验迷宫">
+                <label for="mazeVersionList">已有不可变版本</label>
+                <select id="mazeVersionList">
+                  <option value="">新建地图草稿</option>
+                </select>
+              </div>
+
+              <div class="maze-inspector__block maze-dimensions">
+                <span class="utility-label">规则格尺寸</span>
+                <label>行
+                  <input id="mazeRows" type="number" min="1" max="64" value="5">
+                </label>
+                <label>列
+                  <input id="mazeCols" type="number" min="1" max="64" value="5">
+                </label>
+                <label>格宽 mm
+                  <input id="mazeCellWidth" type="number" min="100" max="5000" value="300">
+                </label>
+                <label>格高 mm
+                  <input id="mazeCellHeight" type="number" min="100" max="5000" value="300">
+                </label>
+                <label>墙厚 mm
+                  <input id="mazeWallThickness" type="number" min="1" value="18">
+                </label>
+                <label>墙高 mm
+                  <input id="mazeWallHeight" type="number" min="1" value="120">
+                </label>
+                <button id="mazeApplyGrid" class="quiet-button" type="button">应用尺寸并重建边界</button>
+              </div>
+
+              <div class="maze-inspector__block">
+                <span class="utility-label">起点方向与图片标定</span>
+                <label for="mazeHeading">初始车头方向</label>
+                <select id="mazeHeading">
+                  <option value="N">北 N</option>
+                  <option value="E">东 E</option>
+                  <option value="S">南 S</option>
+                  <option value="W">西 W</option>
+                </select>
+                <label for="mazeImageInput">实体迷宫底图</label>
+                <input id="mazeImageInput" type="file" accept="image/png,image/jpeg,image/webp">
+                <label for="mazeCalibrationLength">两点实际长度 mm</label>
+                <input id="mazeCalibrationLength" type="number" min="1" value="300">
+                <label for="mazeImageOpacity">底图透明度</label>
+                <input id="mazeImageOpacity" type="range" min="0" max="0.9" step="0.05" value="0.35">
+              </div>
+
+              <div class="maze-inspector__actions">
+                <button id="mazeSaveVersion" class="primary-button" type="button">保存不可变版本</button>
+                <p>保存前检查边界闭合、重复墙、起终点和可达路径。图片不参与规划。</p>
+              </div>
+            </aside>
+          </div>
         </section>
 
         <section id="paramWorkbench" class="console-card param-card">

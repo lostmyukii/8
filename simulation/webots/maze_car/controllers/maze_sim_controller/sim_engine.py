@@ -6,6 +6,13 @@ import math
 from dataclasses import dataclass
 from typing import Any, Mapping
 
+from rdk_maze_tuner.core.maze_definition import MapDefinition
+from rdk_maze_tuner.core.maze_validation import (
+    MazeValidationError,
+    validate_map_definition,
+)
+from simulation.webots.maze_car.map_loader import CompiledMap, compile_map
+
 
 HEADINGS = ("N", "E", "S", "W")
 DELTAS = {
@@ -29,18 +36,6 @@ def _edge(a: Cell, b: Cell) -> Edge:
     return frozenset((a, b))
 
 
-INTERNAL_WALLS = {
-    _edge((0, 1), (1, 1)),
-    _edge((0, 3), (1, 3)),
-    _edge((1, 2), (1, 3)),
-    _edge((2, 1), (3, 1)),
-    _edge((2, 2), (2, 3)),
-    _edge((3, 0), (3, 1)),
-    _edge((3, 3), (4, 3)),
-    _edge((4, 1), (4, 2)),
-}
-
-
 @dataclass
 class PendingAction:
     action_id: str
@@ -58,18 +53,22 @@ class PendingAction:
 class MazeSimEngine:
     """Implements the newline-JSON behavior expected from the ESP32."""
 
-    width = 5
-    height = 5
-    cell_size_m = 0.45
-
     def __init__(self) -> None:
         self.params: dict[str, Any] = {}
         self.param_version = 1
+        self.map_definition = _default_map_definition()
+        self.compiled_map = compile_map(self.map_definition)
+        self.map_version_id = "builtin-open-5x5"
+        self.map_digest = self.map_definition.content_digest
+        self.map_revision = 1
+        self._apply_compiled_map(self.compiled_map)
         self._reset_state()
 
     def _reset_state(self) -> None:
-        self.cell: Cell = (0, 4)
-        self.heading_index = 0
+        self.cell = self.compiled_map.start_cell
+        self.heading_index = HEADINGS.index(
+            self.compiled_map.start_heading
+        )
         self.state = "IDLE"
         self.estopped = False
         self.enc_left = 0
@@ -88,6 +87,8 @@ class MazeSimEngine:
             "fw": "maze-webots-sim",
             "version": "0.1.0",
             "simulated": True,
+            "map_version_id": self.map_version_id,
+            "map_digest": self.map_digest,
         }
 
     def handle(self, message: Mapping[str, Any], *, now_ms: int) -> list[dict[str, Any]]:
@@ -104,9 +105,17 @@ class MazeSimEngine:
             self.params.update(dict(params))
             self.param_version += 1
             return [self._ack(seq)]
+        if message_type == "load_map":
+            return self._load_map(message, seq=seq)
         if message_type == "reset":
+            mismatch = self._map_mismatch(message)
+            if mismatch is not None:
+                return [self._ack(seq, ok=False, message=mismatch)]
             self._reset_state()
-            return [self._ack(seq), self.telemetry_message()]
+            return [
+                self._map_ack(seq),
+                self.telemetry_message(),
+            ]
         if message_type == "start":
             if self.estopped:
                 return [
@@ -116,8 +125,11 @@ class MazeSimEngine:
                         message="simulation is in ESTOP",
                     )
                 ]
+            mismatch = self._map_mismatch(message)
+            if mismatch is not None:
+                return [self._ack(seq, ok=False, message=mismatch)]
             self.state = "IDLE"
-            return [self._ack(seq), self.telemetry_message()]
+            return [self._map_ack(seq), self.telemetry_message()]
         if message_type == "pause":
             cancelled = self._cancel_pending(
                 "PAUSED",
@@ -197,6 +209,8 @@ class MazeSimEngine:
             "simulated": True,
             "sim_cell": list(self.cell),
             "sim_heading": self.heading,
+            "map_version_id": self.map_version_id,
+            "map_digest": self.map_digest,
         }
 
     def world_pose(self) -> tuple[float, float, float]:
@@ -311,16 +325,124 @@ class MazeSimEngine:
         neighbor = (cell[0] + dx, cell[1] + dy)
         if not (0 <= neighbor[0] < self.width and 0 <= neighbor[1] < self.height):
             return True
-        return _edge(cell, neighbor) in INTERNAL_WALLS
+        return _edge(cell, neighbor) in self.internal_walls
 
     def _cell_to_world(self, cell: Cell) -> tuple[float, float]:
-        x = (cell[0] - (self.width - 1) / 2) * self.cell_size_m
-        z = (cell[1] - (self.height - 1) / 2) * self.cell_size_m
+        x = (
+            cell[0] - (self.width - 1) / 2
+        ) * self.cell_width_m
+        z = (
+            cell[1] - (self.height - 1) / 2
+        ) * self.cell_height_m
         return x, z
 
+    def _load_map(
+        self,
+        message: Mapping[str, Any],
+        *,
+        seq: int,
+    ) -> list[dict[str, Any]]:
+        if self.pending is not None or self.state not in {"IDLE", "PAUSED"}:
+            return [
+                self._ack(
+                    seq,
+                    ok=False,
+                    message="cannot load map while an action is active",
+                )
+            ]
+        map_version_id = str(message.get("map_version_id") or "")
+        expected_digest = str(message.get("digest") or "")
+        definition_payload = message.get("definition")
+        if not map_version_id:
+            return [
+                self._ack(
+                    seq,
+                    ok=False,
+                    message="map_version_id is required",
+                )
+            ]
+        try:
+            definition = validate_map_definition(definition_payload)
+        except (MazeValidationError, TypeError) as exc:
+            return [self._ack(seq, ok=False, message=str(exc))]
+        if definition.content_digest != expected_digest:
+            return [
+                self._ack(
+                    seq,
+                    ok=False,
+                    message="map digest does not match definition",
+                )
+            ]
+        compiled = compile_map(definition)
+        self.map_definition = definition
+        self.compiled_map = compiled
+        self.map_version_id = map_version_id
+        self.map_digest = compiled.digest
+        self.map_revision += 1
+        self._apply_compiled_map(compiled)
+        self._reset_state()
+        return [self._map_ack(seq)]
+
+    def _apply_compiled_map(self, compiled: CompiledMap) -> None:
+        self.width = compiled.cols
+        self.height = compiled.rows
+        self.cell_width_m = compiled.cell_width_m
+        self.cell_height_m = compiled.cell_height_m
+        self.internal_walls = compiled.internal_walls
+
+    def _map_mismatch(self, message: Mapping[str, Any]) -> str | None:
+        # ``map_version`` is the pre-Task-6 compatibility field and carries no
+        # digest-backed definition.  Exact map checks are intentionally tied
+        # to the new ``map_version_id`` + ``digest`` pair.
+        requested_version = str(message.get("map_version_id") or "")
+        requested_digest = str(message.get("digest") or "")
+        if requested_version and requested_version != self.map_version_id:
+            return "requested map version is not loaded"
+        if requested_digest and requested_digest != self.map_digest:
+            return "requested map digest is not loaded"
+        return None
+
+    def _map_ack(self, seq: int) -> dict[str, Any]:
+        return self._ack(
+            seq,
+            map_version_id=self.map_version_id,
+            digest=self.map_digest,
+        )
+
     @staticmethod
-    def _ack(seq: int, *, ok: bool = True, message: str | None = None) -> dict[str, Any]:
+    def _ack(
+        seq: int,
+        *,
+        ok: bool = True,
+        message: str | None = None,
+        **fields: Any,
+    ) -> dict[str, Any]:
         payload: dict[str, Any] = {"type": "ack", "seq": seq, "ok": ok}
         if message:
             payload["message"] = message
+        payload.update(fields)
         return payload
+
+
+def _default_map_definition() -> MapDefinition:
+    """Safe open fallback; production tasks replace it with a saved version."""
+
+    return validate_map_definition(
+        {
+            "rows": 5,
+            "cols": 5,
+            "cell_width_mm": 450,
+            "cell_height_mm": 450,
+            "wall_thickness_mm": 40,
+            "wall_height_mm": 180,
+            "start": {"x": 0, "y": 4, "heading": "N"},
+            "goals": [{"x": 4, "y": 0}],
+            "walls": [
+                {"x1": 0, "y1": 0, "x2": 5, "y2": 0},
+                {"x1": 5, "y1": 0, "x2": 5, "y2": 5},
+                {"x1": 5, "y1": 5, "x2": 0, "y2": 5},
+                {"x1": 0, "y1": 5, "x2": 0, "y2": 0},
+            ],
+            "source_image_digest": None,
+        }
+    )

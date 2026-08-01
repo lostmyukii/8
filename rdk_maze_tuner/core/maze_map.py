@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, Optional, Tuple
+
+if TYPE_CHECKING:
+    from .maze_definition import MapDefinition
 
 
 Coord = Tuple[int, int]
@@ -21,6 +24,12 @@ ORDER = [Direction.NORTH, Direction.EAST, Direction.SOUTH, Direction.WEST]
 DELTAS = {
     Direction.NORTH: (0, 1),
     Direction.SOUTH: (0, -1),
+    Direction.EAST: (1, 0),
+    Direction.WEST: (-1, 0),
+}
+SCREEN_DELTAS = {
+    Direction.NORTH: (0, -1),
+    Direction.SOUTH: (0, 1),
     Direction.EAST: (1, 0),
     Direction.WEST: (-1, 0),
 }
@@ -53,9 +62,44 @@ class MazeMap:
         self.position = start
         self.start = start
         self.heading = heading
+        self._deltas = DELTAS
+        self._screen_coordinates = False
+        self.rows: int | None = None
+        self.cols: int | None = None
+        self.map_version_id: str | None = None
+        self.map_digest: str | None = None
         self.cells: Dict[Coord, Cell] = {}
         self.visited = {start}
         self.cell(start).visited = True
+
+    @classmethod
+    def from_definition(
+        cls,
+        definition: "MapDefinition",
+        *,
+        wall_threshold_mm: int,
+        map_version_id: str | None = None,
+    ) -> "MazeMap":
+        maze = cls(
+            wall_threshold_mm=wall_threshold_mm,
+            start=(definition.start.x, definition.start.y),
+            heading=Direction(definition.start.heading),
+        )
+        maze._deltas = SCREEN_DELTAS
+        maze._screen_coordinates = True
+        maze.rows = definition.rows
+        maze.cols = definition.cols
+        maze.map_version_id = map_version_id
+        maze.map_digest = definition.content_digest
+        for coord in definition.iter_cells():
+            blocked = definition.blocked_directions(coord)
+            cell = maze.cell(coord)
+            cell.walls = {
+                direction.value: direction.value in blocked
+                for direction in Direction
+            }
+            cell.visited = coord == maze.start
+        return maze
 
     def cell(self, coord: Coord) -> Cell:
         if coord not in self.cells:
@@ -78,7 +122,7 @@ class MazeMap:
         self.cell(neighbor).walls[OPPOSITE[direction].value] = blocked
 
     def neighbor(self, coord: Coord, direction: Direction) -> Coord:
-        dx, dy = DELTAS[direction]
+        dx, dy = self._deltas[direction]
         return coord[0] + dx, coord[1] + dy
 
     def local_to_global(self, local_direction: str) -> Direction:
@@ -124,7 +168,12 @@ class MazeMap:
             Direction.WEST: "<",
         }[self.heading]
 
-        for y in range(max_y, min_y - 1, -1):
+        y_order = (
+            range(min_y, max_y + 1)
+            if self._screen_coordinates
+            else range(max_y, min_y - 1, -1)
+        )
+        for y in y_order:
             top = "+"
             for x in range(min_x, max_x + 1):
                 top += self._hseg(self.cell((x, y)).walls["N"]) + "+"
@@ -145,8 +194,9 @@ class MazeMap:
             lines.append(mid)
 
         bottom = "+"
+        bottom_y = max_y if self._screen_coordinates else min_y
         for x in range(min_x, max_x + 1):
-            bottom += self._hseg(self.cell((x, min_y)).walls["S"]) + "+"
+            bottom += self._hseg(self.cell((x, bottom_y)).walls["S"]) + "+"
         lines.append(bottom)
         return "\n".join(lines)
 
@@ -170,6 +220,15 @@ class MazeMap:
             "start": [self.start[0], self.start[1]],
             "heading": self.heading.value,
             "wall_threshold_mm": self.wall_threshold_mm,
+            "rows": self.rows,
+            "cols": self.cols,
+            "map_version_id": self.map_version_id,
+            "map_digest": self.map_digest,
+            "coordinate_system": (
+                "grid_y_down"
+                if self._screen_coordinates
+                else "cartesian_y_up"
+            ),
             "visited": [[x, y] for x, y in sorted(self.visited)],
             "cells": [
                 {

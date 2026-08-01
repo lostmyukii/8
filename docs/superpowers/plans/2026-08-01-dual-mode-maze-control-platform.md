@@ -463,7 +463,7 @@ feat: build dual-mode control console
 - Create: `rdk_maze_tuner/tests/test_maze_editor_api.py`
 - Create: `rdk_maze_tuner/tests/test_webots_map_loader.py`
 
-- [ ] **6.1 写地图 schema 和校验失败测试**
+- [x] **6.1 写地图 schema 和校验失败测试**
 
 覆盖：
 
@@ -475,11 +475,11 @@ feat: build dual-mode control console
 - 起终点可达。
 - 相同内容生成相同 digest。
 
-- [ ] **6.2 实现不可变 `MapVersion`**
+- [x] **6.2 实现不可变 `MapVersion`**
 
 旧 run 继续引用旧地图；保存新版本不覆盖历史。
 
-- [ ] **6.3 实现格线吸附编辑器**
+- [x] **6.3 实现格线吸附编辑器**
 
 支持：
 
@@ -491,7 +491,7 @@ feat: build dual-mode control console
 
 原始图片存为 artifact；规划只读取结构化墙体。
 
-- [ ] **6.4 动态装载 Webots 墙体**
+- [x] **6.4 动态装载 Webots 墙体**
 
 由 Supervisor 根据 `MapVersion` 生成墙体和边界；不再依赖硬编码 `INTERNAL_WALLS`。仿真 reset 后位置、地图和视觉墙体一致。
 
@@ -504,7 +504,7 @@ feat: build dual-mode control console
 
 仿真桥必须回传包含相同 `seq`、`map_version_id` 和实际 digest 的 ack。只允许在非 RUNNING 状态加载地图；digest 不一致时拒绝 start。
 
-- [ ] **6.5 运行测试**
+- [x] **6.5 运行测试**
 
 ```bash
 .venv/bin/python -m pytest \
@@ -514,11 +514,25 @@ feat: build dual-mode control console
   rdk_maze_tuner/tests/test_webots_sim_bridge.py -q
 ```
 
-- [ ] **6.6 提交检查点**
+- [x] **6.6 提交检查点**
 
 ```text
 feat: add versioned maze drawing editor
 ```
+
+**Task 6 实施记录（2026-08-01）：**
+
+- 初始 RED：地图 schema、校验、版本仓库和 Webots loader 尚不存在，目标测试在收集阶段出现 3 项模块缺失；仿真适配器精确加载测试随后以 `map_provider` 参数缺失失败。
+- 结构地图统一规范化为水平/垂直单位墙段，校验格尺寸、墙体范围、闭合外边界、重复墙、起终点和 BFS 可达性；规范 JSON 生成稳定 SHA-256 digest。
+- SQLite `maps` / `map_versions` 保存不可变历史版本，底图按 digest 存入 artifact；读 API 需要登录，写 API 继续要求 CSRF 和控制权租约。
+- 描线台支持吸附描墙、擦除、撤销/重做、起点/终点/车头方向、规则格尺寸、半透明底图与两点比例标定；图片只作为描摹证据，不进入规划真值。
+- 浏览器验收实际创建 v1、修改后创建 v2，并发现且修复“v2 保存后历史 v1 不再出现在下拉框”的问题；v1/v2 均可独立重新载入。
+- `MazeMap`、仿真引擎和 Webots Supervisor 共用同一个 `MapDefinition` digest；Supervisor 动态替换 `DEF MAZE_WALLS`，reset/start 校验并回显完全相同的 `map_version_id` 和 digest。
+- 完整回归首次发现旧 `map_version` 兼容路径被严格版本校验误拒绝；修复为只有新的 `map_version_id + digest` 组合触发精确校验，旧仿真合同继续可用。
+- Playwright 实际浏览器验收 1440×1000、900×1000、768×1000；无横向溢出，描线、撤销/重做、不可变版本和历史加载正常，浏览器控制台 0 error。
+- Task 6 目标测试：29 passed；完整 Python 回归：134 passed。
+- `compileall`、全部 Dashboard JavaScript `node --check`、`uv pip check` 和 ESP32 PlatformIO 构建通过。
+- 本任务未启动 Webots GUI、未连接 RDK X3 或真实小车，未执行固件烧录和真实运动；动态墙体的真实画面及物理验收仍需在相应设备在线后完成。
 
 ### Task 7：连续位姿、方向、置信度和滑移估算
 

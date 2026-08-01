@@ -31,6 +31,7 @@ from rdk_maze_tuner.dashboard.routes.control import (
     CONTROL_LEASE_HEADER_NAME,
     create_control_router,
 )
+from rdk_maze_tuner.dashboard.routes.maps import create_maps_router
 from rdk_maze_tuner.dashboard.routes.tasks import create_tasks_router
 from rdk_maze_tuner.dashboard.state import DashboardState
 from rdk_maze_tuner.platform.auth import (
@@ -50,6 +51,7 @@ from rdk_maze_tuner.platform.modes import (
     RealModeAdapter,
     SimulationModeAdapter,
 )
+from rdk_maze_tuner.platform.map_repository import MapRepository
 from rdk_maze_tuner.platform.task_orchestrator import (
     TaskConflictError,
     TaskOrchestrator,
@@ -76,6 +78,7 @@ def create_app(
     control_lease_service: Optional[ControlLeaseService] = None,
     login_rate_limiter: Optional[LoginRateLimiter] = None,
     task_orchestrator: Optional[TaskOrchestrator] = None,
+    map_repository: Optional[MapRepository] = None,
     client_mode: Optional[str] = None,
 ) -> FastAPI:
     resolved_database = (
@@ -111,14 +114,21 @@ def create_app(
     )
     runtime = SerialDashboardRuntime(state=dashboard_state)
     platform_config = PlatformConfig.from_env()
+    resolved_maps = map_repository or MapRepository(
+        database=resolved_database,
+        artifacts_dir=platform_config.artifacts_dir,
+    )
     if task_orchestrator is None:
         simulation_adapter = (
             SimulationModeAdapter(
-                session_factory=lambda _endpoint: coordinated_client
+                session_factory=lambda _endpoint: coordinated_client,
+                map_provider=resolved_maps.get_version,
             )
             if coordinated_client is not None
             and client_mode == "simulation"
-            else SimulationModeAdapter()
+            else SimulationModeAdapter(
+                map_provider=resolved_maps.get_version,
+            )
         )
         adapters = {
             "simulation": simulation_adapter,
@@ -131,10 +141,13 @@ def create_app(
                 raise RuntimeError(
                     "real task execution requires the future RDK X3 Agent"
                 )
-            maze = MazeMap(
+            map_version = resolved_maps.get_version(task.map_version)
+            maze = MazeMap.from_definition(
+                map_version.definition,
                 wall_threshold_mm=int(
                     dashboard_state.params.get("tof.wall_threshold_mm")
-                )
+                ),
+                map_version_id=map_version.version_id,
             )
             dashboard_state.set_maze(maze)
             return MazeRunner(
@@ -174,11 +187,15 @@ def create_app(
     app.state.dashboard = dashboard_state
     app.state.runtime = runtime
     app.state.task_orchestrator = resolved_tasks
+    app.state.map_repository = resolved_maps
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     app.include_router(create_auth_router(auth_context))
     app.include_router(create_control_router(auth_context, resolved_leases))
     app.include_router(
         create_tasks_router(auth_context, resolved_leases, resolved_tasks)
+    )
+    app.include_router(
+        create_maps_router(auth_context, resolved_leases, resolved_maps)
     )
 
     @app.get("/", response_class=HTMLResponse)

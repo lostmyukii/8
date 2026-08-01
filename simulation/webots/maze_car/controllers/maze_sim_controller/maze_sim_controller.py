@@ -15,6 +15,7 @@ from controller import Supervisor  # type: ignore  # noqa: E402
 
 from simulation.webots.maze_car.controllers.maze_sim_controller.sim_engine import MazeSimEngine  # noqa: E402
 from simulation.webots.maze_car.controllers.maze_sim_controller.sim_server import SimProtocolServer  # noqa: E402
+from simulation.webots.maze_car.map_loader import WebotsMapLoader  # noqa: E402
 
 
 def main() -> int:
@@ -28,11 +29,16 @@ def main() -> int:
     )
     translation = robot.getSelf().getField("translation")
     rotation = robot.getSelf().getField("rotation")
+    map_loader = WebotsMapLoader(robot)
+    loaded_revision = 0
 
     try:
         while robot.step(timestep_ms) != -1:
             now_ms = int(robot.getTime() * 1000)
             server.poll(now_ms=now_ms)
+            if loaded_revision != engine.map_revision:
+                map_loader.load(engine.map_definition)
+                loaded_revision = engine.map_revision
             x, z, yaw = engine.world_pose()
             translation.setSFVec3f([x, 0.075, z])
             rotation.setSFRotation([0.0, 1.0, 0.0, yaw])

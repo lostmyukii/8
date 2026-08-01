@@ -9,10 +9,22 @@ export class ApiError extends Error {
   }
 }
 
-async function request(path, { method = "GET", body, control = false } = {}) {
+async function request(
+  path,
+  {
+    method = "GET",
+    body,
+    rawBody,
+    contentType,
+    control = false,
+  } = {},
+) {
   const appState = getAppState();
   const headers = { Accept: "application/json" };
   if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (rawBody !== undefined) {
+    headers["Content-Type"] = contentType || "application/octet-stream";
+  }
   if (method !== "GET" && appState.csrfToken) {
     headers["X-CSRF-Token"] = appState.csrfToken;
   }
@@ -23,7 +35,12 @@ async function request(path, { method = "GET", body, control = false } = {}) {
     method,
     headers,
     credentials: "same-origin",
-    body: body === undefined ? undefined : JSON.stringify(body),
+    body:
+      rawBody !== undefined
+        ? rawBody
+        : body === undefined
+          ? undefined
+          : JSON.stringify(body),
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
@@ -118,6 +135,54 @@ export function updateAutoTune(enabled) {
     body: { enabled },
     control: true,
   });
+}
+
+export function listMaps() {
+  return request("/api/maps");
+}
+
+export function listMapVersions(mapId) {
+  return request(
+    `/api/maps/${encodeURIComponent(mapId)}/versions`,
+  );
+}
+
+export function getMapVersion(versionId) {
+  return request(
+    `/api/map-versions/${encodeURIComponent(versionId)}`,
+  );
+}
+
+export function createMap(name, definition) {
+  return request("/api/maps", {
+    method: "POST",
+    body: { name, definition },
+    control: true,
+  });
+}
+
+export function saveMapVersion(mapId, definition) {
+  return request(
+    `/api/maps/${encodeURIComponent(mapId)}/versions`,
+    {
+      method: "POST",
+      body: { definition },
+      control: true,
+    },
+  );
+}
+
+export function uploadMapSourceImage(mapId, file) {
+  const filename = encodeURIComponent(file.name || "source-image");
+  return request(
+    `/api/maps/${encodeURIComponent(mapId)}/source-image?filename=${filename}`,
+    {
+      method: "POST",
+      rawBody: file,
+      contentType: file.type,
+      control: true,
+    },
+  );
 }
 
 export function openStateSocket({ onOpen, onState, onClose, onError }) {

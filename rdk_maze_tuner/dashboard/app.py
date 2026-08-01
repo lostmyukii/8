@@ -274,6 +274,13 @@ def create_app(
     def index() -> HTMLResponse:
         return HTMLResponse((TEMPLATE_DIR / "index.html").read_text(encoding="utf-8"))
 
+    @app.get("/api/health")
+    def api_health() -> dict[str, Any]:
+        return {
+            "ok": True,
+            "service": "maze-dashboard",
+        }
+
     @app.get("/api/state")
     def api_state(request: Request) -> dict[str, Any]:
         principal = auth_context.require_principal(request)

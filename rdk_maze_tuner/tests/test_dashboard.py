@@ -201,6 +201,18 @@ def test_dashboard_serves_workspace_with_estop_control(tmp_path):
     assert 'id="mazeMap"' in response.text
 
 
+def test_dashboard_health_is_public_and_minimal(tmp_path):
+    client = TestClient(make_test_app(tmp_path))
+
+    response = client.get("/api/health")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "ok": True,
+        "service": "maze-dashboard",
+    }
+
+
 def test_dashboard_state_contains_params_map_and_logs(tmp_path):
     client = make_authenticated_client(tmp_path)
 

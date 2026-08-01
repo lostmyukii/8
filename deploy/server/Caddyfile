@@ -1,0 +1,29 @@
+{
+	admin off
+}
+
+8.ilelezhan.cn {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "same-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
+	@simulation path /simulation /simulation/*
+	handle @simulation {
+		forward_auth 127.0.0.1:8000 {
+			uri /api/auth/authorize
+		}
+		uri strip_prefix /simulation
+		reverse_proxy 127.0.0.1:1234
+	}
+
+	handle {
+		reverse_proxy 127.0.0.1:8000
+	}
+}

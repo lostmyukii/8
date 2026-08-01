@@ -19,8 +19,11 @@ export DEBIAN_FRONTEND=noninteractive
 
 apt-get update
 apt-get install -y \
+  apt-transport-https \
   ca-certificates \
   curl \
+  debian-archive-keyring \
+  debian-keyring \
   dbus-x11 \
   git \
   gnupg \
@@ -38,6 +41,19 @@ apt-get install -y \
   xfce4 \
   xfce4-goodies \
   xvfb
+
+curl -1sLf \
+  https://dl.cloudsmith.io/public/caddy/stable/gpg.key |
+  gpg --dearmor --yes \
+    -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf \
+  https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt \
+  -o /etc/apt/sources.list.d/caddy-stable.list
+chmod o+r \
+  /usr/share/keyrings/caddy-stable-archive-keyring.gpg \
+  /etc/apt/sources.list.d/caddy-stable.list
+apt-get update
+apt-get install -y caddy
 
 locale-gen en_US en_US.UTF-8
 update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8

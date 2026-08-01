@@ -14,6 +14,9 @@ current_link="/srv/maze/current"
 previous_link="/srv/maze/previous"
 acceptance_root="/srv/maze/shared/acceptance/physical"
 public_url=${MAZE_PUBLIC_URL:-https://8.ilelezhan.cn/}
+public_host=${public_url#*://}
+public_host=${public_host%%/*}
+public_host=${public_host%%:*}
 previous_target=""
 switched=false
 active_sim_services=()
@@ -177,6 +180,16 @@ done
 systemctl daemon-reload
 systemctl enable --now maze-vnc.service maze-novnc.service
 systemctl enable maze-webots-stream.service maze-dashboard.service
+if ! command -v caddy >/dev/null 2>&1; then
+  echo "Caddy is missing. Run install_host.sh before deployment." >&2
+  exit 1
+fi
+install -m 0644 \
+  "${current_link}/deploy/server/Caddyfile" \
+  /etc/caddy/Caddyfile
+caddy validate --config /etc/caddy/Caddyfile
+systemctl enable --now caddy.service
+systemctl reload caddy.service
 systemctl stop maze-dashboard.service
 systemctl restart maze-webots-stream.service
 systemctl start maze-dashboard.service
@@ -208,6 +221,24 @@ wait_tcp() {
   return 1
 }
 
+wait_local_https_vhost() {
+  local host=$1
+  local attempts=${2:-60}
+  local index
+  for ((index = 1; index <= attempts; index += 1)); do
+    if curl -fsS \
+      --connect-timeout 2 \
+      --max-time 5 \
+      --resolve "${host}:443:127.0.0.1" \
+      "https://${host}/api/health" |
+      grep -Fq '"ok":true'; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
 require_loopback_listener() {
   local port=$1
   local listeners
@@ -228,10 +259,11 @@ require_loopback_listener() {
 }
 
 if ! wait_http http://127.0.0.1:8000/ 60 ||
+  ! wait_http http://127.0.0.1:8000/api/health 60 ||
   ! wait_http http://127.0.0.1:1234/index.html 60 ||
   ! wait_tcp 127.0.0.1 8765 60 ||
   ! require_loopback_listener 8765 ||
-  ! wait_http "${public_url}" 30; then
+  ! wait_local_https_vhost "${public_host}" 60; then
   systemctl --no-pager --full status \
     maze-webots-stream.service \
     maze-dashboard.service || true

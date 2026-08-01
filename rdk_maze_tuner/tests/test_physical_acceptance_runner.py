@@ -437,3 +437,28 @@ def test_deploy_requires_acceptance_before_atomic_switch_and_exact_rollback():
     assert "pkill" not in rollback
     assert "killall" not in rollback
     assert "maze_physical_world.wbt" in mode
+
+
+def test_caddy_keeps_simulation_behind_platform_authentication():
+    caddyfile = Path("deploy/server/Caddyfile").read_text(encoding="utf-8")
+
+    assert "8.ilelezhan.cn" in caddyfile
+    assert "@simulation path /simulation /simulation/*" in caddyfile
+    assert "forward_auth 127.0.0.1:8000" in caddyfile
+    assert "uri /api/auth/authorize" in caddyfile
+    assert "uri strip_prefix /simulation" in caddyfile
+    assert "reverse_proxy 127.0.0.1:1234" in caddyfile
+    assert "reverse_proxy 127.0.0.1:8000" in caddyfile
+    assert "6080" not in caddyfile
+    assert "5901" not in caddyfile
+
+
+def test_release_deployment_validates_caddy_and_local_https_vhost():
+    deploy = Path("deploy/server/deploy_release.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "caddy validate --config /etc/caddy/Caddyfile" in deploy
+    assert "systemctl reload caddy.service" in deploy
+    assert "--resolve" in deploy
+    assert "127.0.0.1" in deploy

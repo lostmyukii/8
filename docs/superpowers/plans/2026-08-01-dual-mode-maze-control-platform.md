@@ -67,7 +67,7 @@ SSH password authentication: retained
 - Modify: `.gitignore`
 - Modify: `requirements.txt`
 
-- [ ] **1.1 写 SQLite 迁移失败测试**
+- [x] **1.1 写 SQLite 迁移失败测试**
 
 验证新数据库创建以下表并可重复迁移：
 
@@ -94,7 +94,7 @@ Run:
 
 Expected: RED，因为 platform 存储模块尚不存在。
 
-- [ ] **1.2 实现配置和数据库生命周期**
+- [x] **1.2 实现配置和数据库生命周期**
 
 要求：
 
@@ -104,7 +104,7 @@ Expected: RED，因为 platform 存储模块尚不存在。
 - 迁移使用显式版本表，不依赖 ORM。
 - 测试数据库使用 `tmp_path`，不触碰真实数据。
 
-- [ ] **1.3 实现双写事件存储**
+- [x] **1.3 实现双写事件存储**
 
 每个 run 同时写：
 
@@ -113,7 +113,7 @@ Expected: RED，因为 platform 存储模块尚不存在。
 
 JSONL 每条记录包含 `event_id`、`run_id`、单调时间、UTC 时间、类型、来源、payload 和 schema version。重复 `event_id` 必须幂等。
 
-- [ ] **1.4 运行存储测试和回归**
+- [x] **1.4 运行存储测试和回归**
 
 ```bash
 .venv/bin/python -m pytest rdk_maze_tuner/tests/test_platform_database.py rdk_maze_tuner/tests/test_event_store.py -q
@@ -122,13 +122,22 @@ JSONL 每条记录包含 `event_id`、`run_id`、单调时间、UTC 时间、类
 
 Expected: PASS。
 
-- [ ] **1.5 提交检查点**
+- [x] **1.5 提交检查点**
 
 Commit message:
 
 ```text
 feat: add platform storage foundation
 ```
+
+实施证据（2026-08-01）：
+
+- RED：两份新测试因 `rdk_maze_tuner.platform` 不存在而在收集阶段失败。
+- 并发 RED：两个存储实例同时重试同一 `event_id` 时稳定复现两行 JSONL，修复后只保留一行。
+- 目标测试：10 passed。
+- 完整 Python 回归：67 passed；`compileall` 通过。
+- ESP32 PlatformIO 构建：通过，RAM 6.9%，Flash 24.1%。
+- 本任务仅使用 stdlib `sqlite3` 和 POSIX `fcntl`，未新增第三方依赖，因此 `requirements.txt` 无需改动。
 
 ### Task 2：网站账户、服务端会话与控制权租约
 

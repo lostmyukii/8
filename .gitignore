@@ -2,6 +2,7 @@ __pycache__/
 *.py[cod]
 .venv/
 .superpowers/
+.local/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/

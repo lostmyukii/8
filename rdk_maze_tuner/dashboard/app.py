@@ -16,6 +16,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from rdk_maze_tuner.core.device_session import DeviceSession
+from rdk_maze_tuner.core.goal_directed_planner import GoalDirectedPlanner
 from rdk_maze_tuner.core.maze_map import MazeMap
 from rdk_maze_tuner.core.maze_planner import MazePlanner
 from rdk_maze_tuner.core.maze_runner import MazeRunner
@@ -79,6 +80,24 @@ DEFAULT_PARAMS = PROJECT_DIR / "config" / "params.yaml"
 DEFAULT_LIMITS = PROJECT_DIR / "config" / "limits.yaml"
 TEMPLATE_DIR = PACKAGE_DIR / "templates"
 STATIC_DIR = PACKAGE_DIR / "static"
+
+
+def _planner_for_task(
+    task: TaskRecord,
+) -> GoalDirectedPlanner | MazePlanner:
+    if task.run_kind == "auto_to_map_goal":
+        cell = task.goal.get("cell")
+        if (
+            not isinstance(cell, (list, tuple))
+            or len(cell) != 2
+        ):
+            raise RuntimeError("automatic task is missing a resolved map goal")
+        return GoalDirectedPlanner(
+            goal_cells=((int(cell[0]), int(cell[1])),),
+        )
+    if task.run_kind == "exploration_complete":
+        return MazePlanner()
+    raise RuntimeError(f"unsupported task run_kind: {task.run_kind}")
 
 
 def create_app(
@@ -226,7 +245,7 @@ def create_app(
                 client=adapter.session,
                 params=dashboard_state.params,
                 maze=maze,
-                planner=MazePlanner(),
+                planner=_planner_for_task(task),
                 action_prefix=task.run_id or task.task_id,
             )
 

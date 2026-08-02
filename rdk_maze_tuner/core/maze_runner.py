@@ -7,7 +7,6 @@ from typing import Any, Callable, Mapping, Optional, Protocol
 
 from .logger import JsonlLogger
 from .maze_map import MazeMap, PlannedAction
-from .maze_planner import MazePlanner
 from .auto_tuner import AutoTuner
 from .motion_analyzer import MotionAnalyzer, MotionReport
 from .motion_targets import MotionTarget, MotionTargetResolver
@@ -37,6 +36,11 @@ class StepControl(Protocol):
         ...
 
 
+class ActionPlanner(Protocol):
+    def next_action(self, maze: MazeMap) -> PlannedAction:
+        ...
+
+
 GoalCondition = Callable[[MazeMap, Mapping[str, Any]], bool]
 EventSink = Callable[[dict[str, Any]], None]
 
@@ -62,7 +66,7 @@ class MazeRunner:
         client: MazeClient,
         params: ParamManager,
         maze: MazeMap,
-        planner: MazePlanner,
+        planner: ActionPlanner,
         analyzer: Optional[MotionAnalyzer] = None,
         tuner: Optional[AutoTuner] = None,
         logger: Optional[JsonlLogger] = None,
@@ -171,6 +175,15 @@ class MazeRunner:
             )
 
         action = self.planner.next_action(self.maze)
+        consume_route_event = getattr(
+            self.planner,
+            "consume_route_event",
+            None,
+        )
+        if callable(consume_route_event):
+            route_event = consume_route_event()
+            if route_event is not None:
+                emit("route.planned", route_event)
         if action.name == "stop":
             emit("planned_action", action)
             emit("maze_update", self.maze.to_dict())

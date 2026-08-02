@@ -155,6 +155,24 @@ class DisconnectingRunner:
         raise DeviceDisconnectedError("device link lost")
 
 
+class RouteEventRunner:
+    def run_step(self, *, control, goal, event_sink):
+        event_sink(
+            {
+                "type": "route.planned",
+                "payload": {
+                    "start": [0, 4],
+                    "goal": [4, 0],
+                    "cells": [[0, 4], [0, 3], [4, 0]],
+                    "actions": [
+                        {"name": "move_cell", "direction": "N"},
+                    ],
+                },
+            }
+        )
+        return step_result("goal_reached")
+
+
 def make_orchestrator(tmp_path, runners, *, run_finalizer=None):
     database = Database(tmp_path / "platform.sqlite3")
     database.initialize()
@@ -231,6 +249,30 @@ def test_orchestrator_runs_to_goal_and_persists_structured_events(tmp_path):
     assert row["status"] == "COMPLETED"
     assert row["started_at_utc"] is not None
     assert row["ended_at_utc"] is not None
+
+
+def test_orchestrator_persists_route_planned_as_runner_event(tmp_path):
+    _database, events, _adapter, orchestrator = make_orchestrator(
+        tmp_path,
+        [RouteEventRunner()],
+    )
+    ready = create_ready_task(orchestrator)
+
+    orchestrator.start(ready["task_id"])
+    orchestrator.wait_for_state(
+        ready["task_id"],
+        {TaskStatus.COMPLETED},
+        timeout_s=1.0,
+    )
+
+    route_event = next(
+        event
+        for event in events.list_events(ready["run_id"])
+        if event["type"] == "route.planned"
+    )
+    assert route_event["source"] == "maze_runner"
+    assert route_event["payload"]["start"] == [0, 4]
+    assert route_event["payload"]["goal"] == [4, 0]
 
 
 def test_simulation_task_defaults_profile_and_run_freezes_exact_snapshot(

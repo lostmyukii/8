@@ -490,7 +490,35 @@ Commit：
 feat: plan deterministic routes to map goals
 ```
 
-实施记录在执行 Task 5 时写入本节。
+**Task 5 实施记录（2026-08-02）：**
+
+- RED：目标命令在收集阶段得到 `2 errors`，两组新测试均明确缺少
+  `rdk_maze_tuner.core.goal_directed_planner`；现有系统只有 DFS。
+- 最小实现：
+  - 新增 `GoalDirectedPlanner`，每个动作边界都从当前可靠格子和车头重新执行 BFS，
+    只接受 `wall_for_planning(...) is False` 的边，并用固定方向优先级保证可复现。
+  - 多候选终点先按最短格数，再按 `(y,x)` 决胜；格子路线被确定性转换为
+    `turn_left/right/back` 和带全局方向的 `move_cell` 动作。
+  - `GoalRoute` 使用冻结数据类和元组保存地图版本、摘要、起点、车头、终点、格子
+    路径与动作摘要；无合法路径使用稳定错误码 `NO_PATH`，供 runner 以
+    `exhausted` 进入现有任务错误流程。
+  - `MazeRunner` 只通过规划器协议取下一动作；目标规划器产生的新路线在
+    `planned_action` 前发出 `route.planned`，由编排器写入不可变事件存储。
+  - Dashboard `runner_factory` 按 `run_kind` 注入：`auto_to_map_goal` 使用冻结的
+    任务主终点创建 `GoalDirectedPlanner`，`exploration_complete` 继续使用旧
+    `MazePlanner` DFS。
+- 目标测试：`24 passed in 1.02s`。其中 `(0,4)·N -> (4,0)` fixture 的首个北向
+  边被计划墙封闭，实际路线为
+  `(0,4)->(1,4)->(1,3)->(1,2)->(1,1)->(1,0)->(2,0)->(3,0)->(4,0)`；
+  测试逐格验证不穿墙、不越界，并验证位姿改变后不消费旧动作队列。
+- 完整回归：
+  - `compileall` 通过；
+  - Python `364 passed in 5.68s`；
+  - `api.js/state.js/render.js/controls.js/replay.js` 全部通过 `node --check`；
+  - ESP32 PlatformIO 构建通过，RAM `22744/327680` bytes，Flash
+    `317041/1310720` bytes。
+- 边界：本 Task 证明的是软件规划与事件合同；尚未加入动作物理证据门，也未在
+  Webots 或真车上执行整条路线，因此不能据此声称小车已经到达终点。未部署正式站点。
 
 ---
 

@@ -44,7 +44,7 @@ class ActionControlConfig:
     turn_brake_horizon_s: float = 0.035
     turn_progress_floor_ratio: float = 0.5
     minimum_speed_scale: float = 0.22
-    move_torque_scale: float = 0.20
+    move_torque_scale: float = 0.30
     turn_torque_scale: float = 1.0
     danger_stop_mm: float = 60.0
     action_timeout_ms: int = 12000

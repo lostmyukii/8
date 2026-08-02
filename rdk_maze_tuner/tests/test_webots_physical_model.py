@@ -102,12 +102,17 @@ def test_physical_worlds_use_eight_ms_step_and_real_collision_surfaces():
         assert 'material2 "maze_tire_right_low"' in text
         assert re.search(
             r'material2 "maze_tire_left"\s+'
-            r"coulombFriction\s+\[\s*0\.9\s+0\.12\s*\]",
+            r"coulombFriction\s+\[\s*0\.9\s*\]",
             text,
         )
         assert re.search(
             r'material2 "maze_tire_left_low"\s+'
-            r"coulombFriction\s+\[\s*0\.25\s+0\.05\s*\]",
+            r"coulombFriction\s+\[\s*0\.25\s*\]",
+            text,
+        )
+        assert not re.search(
+            r'material2 "maze_tire_(?:left|right)(?:_low)?"\s+'
+            r"coulombFriction\s+\[\s*[0-9.]+\s+[0-9.]+\s*\]",
             text,
         )
         assert 'contactMaterial "maze_floor_normal"' in text

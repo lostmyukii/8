@@ -152,7 +152,7 @@ def test_straight_control_uses_encoder_difference_and_imu_heading():
     )
 
     assert output.target_velocity_left_rad_s < output.target_velocity_right_rad_s
-    assert output.motor_available_torque_nm == pytest.approx(0.12)
+    assert output.motor_available_torque_nm == pytest.approx(0.18)
     assert output.telemetry["encoder_balance_error_ticks"] == 10
     assert output.telemetry["heading_error_deg"] < 0
 

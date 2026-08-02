@@ -1,20 +1,23 @@
 # Webots 物理迷宫小车验收清单
 
-更新时间：2026-08-01 UTC  
-验收服务器：8 vCPU / 16 GiB，AMD EPYC 9K65，Ubuntu 24.04  
-Webots：R2025a  
+更新时间：2026-08-02 UTC
+
+验收服务器：8 vCPU / 16 GiB，AMD EPYC 9K65，Ubuntu 24.04
+
+Webots：R2025a
+
 固定随机种子：`20260801`
 
 ## 1. 当前结论
 
 | 边界 | 状态 | 证据 |
 |---|---|---|
-| 源码/静态合同 | PASS | 本机 325 项 Python 测试；Python、JavaScript、shell 静态检查通过 |
+| 源码/静态合同 | PASS | 本机及生产 release 均为 330 项 Python 测试；Python、JavaScript、shell 静态检查通过 |
 | 无 Webots 单元测试 | PASS | fake device、协议、PID、地图、任务、成绩和回放均进入完整回归 |
-| Webots 物理仿真 | PASS | `physical-20260801T184931Z-6b28a70a`，P1–P4 `overall PASS` |
-| 网站本机/SSH 隧道链路 | PASS | Dashboard 登录页和 W3D 画面均真实打开；鉴权 API 合同测试通过 |
-| 网站公网 HTTPS | BLOCKED | 主机 UFW 已放行 80/443，但外部连接和 ACME 均在到达主机前超时；腾讯云安全组待重新核对 |
-| 服务器性能 | PASS | RTF 0.952、可见更新 19.99 FPS、telemetry 17.23 Hz、控制周期 8 ms |
+| Webots 物理仿真 | PASS | 生产报告 `physical-20260802T043618Z-6eecc7f0`，P1–P4 `overall PASS` |
+| 网站全链路 | PASS | 生产 HTTPS Dashboard 已真实显示 W3D 迷宫、小车和车头；鉴权 WebSocket 返回 101 并持续接收场景数据 |
+| 网站公网 HTTPS | PASS | `https://8.ilelezhan.cn/` 外网返回 200，`/api/health` 正常，Let's Encrypt 证书有效 |
+| 服务器性能 | PASS | 最新 RTF 0.952、可见更新 19.99 FPS、telemetry 17.23 Hz、控制周期 8 ms |
 | ESP32 构建 | PASS | RAM 6.9%，Flash 24.2% |
 | 真实小车 | NOT TESTED | 尚未连接 ESP32、编码器、三路 ToF 和电机做物理验收 |
 
@@ -43,9 +46,18 @@ Task 11 后续的独立部署修复：
 - `6776aed`：恢复 Caddy 鉴权入口和公开健康端点。
 - `d1817b3`：保留 Caddy reload 能力并固化 UFW 80/443。
 - `dcc050c`：健康检查失败时真正触发精确回滚。
+- `7c70482`：在已认证 Dashboard 中嵌入同源 Webots W3D 实时画面。
+- `bd40991`：调整物理视角并增加无碰撞体车头标记，保证浏览器流中
+  小车位置和方向清晰可见。
+- `022674e`：不对称地面使用冻结的左右摩擦差和实际偏航作稳定验收。
+- `147a89b`：局部低摩擦使用冻结的地面差和实际区域进入作稳定验收。
+- `b109508`：动作结果超时与串口 ACK 超时分离，避免长动作被错误判定为超时。
+- `208cb12`：浏览器固定连接 `/simulation/`，保留 Webots 根路径语义。
+- `e7a7d19`：Caddy 鉴权子请求移除 `Connection/Upgrade`，再把原始
+  WebSocket upgrade 代理给 Webots。
 
-最新完整本机回归为 `325 passed`；最新服务器候选回归同为
-`325 passed`。服务器 PlatformIO 为 RAM 22744/327680 bytes（6.9%）、
+最新完整本机回归为 `330 passed`；`e7a7d19` 生产 release 回归同为
+`330 passed`。服务器 PlatformIO 为 RAM 22744/327680 bytes（6.9%）、
 Flash 316937/1310720 bytes（24.2%）。
 
 ## 3. 四个不可变 profile
@@ -62,7 +74,7 @@ Flash 316937/1310720 bytes（24.2%）。
 
 ## 4. P1 静止稳定
 
-报告：`/srv/maze/shared/acceptance/physical/physical-20260801T184931Z-6b28a70a/report.json`
+报告：`/srv/maze/shared/acceptance/physical/physical-20260802T043618Z-6eecc7f0/report.json`
 
 - 10.008 秒水平漂移：0 m，阈值 ≤ 0.002 m。
 - 垂直沉降：0.000011242 m。
@@ -85,36 +97,41 @@ Flash 316937/1310720 bytes（24.2%）。
 - 请求/完成：30/30，成功率 100%，阈值 ≥ 90%。
 - 最大距离误差：11.0999 mm，阈值 ≤ 15 mm。
 - 最大航向误差：0.955738°，阈值 ≤ 3°。
-- 最大转向误差：1.211895°，阈值 ≤ 3°。
+- 最大转向误差：0.942894°，阈值 ≤ 3°。
 - 碰撞：0。
-- realTimeFactor：0.95445。
+- realTimeFactor：0.952863。
 - P3：PASS。
 
 ## 7. P4 摩擦差异
 
 | 场景 | 动作 | 关键实测 | 阈值结果 |
 |---|---:|---|---|
-| `asymmetric-v1` | 3/3 | 左右滑移差 0.048806；航向差 8.611818° | PASS |
-| `local-patch-v1` | 8/8 | 滑移增量 0.502025；地面切换 3 次 | PASS |
-| `low-v1` | 3/3 | 最低平均滑移 0.619103；编码器-真值差 88.7831 mm | PASS |
+| `asymmetric-v1` | 3/3 | 冻结左右摩擦差 0.55；实际偏航差 6.695003° | PASS |
+| `local-patch-v1` | 8/8 | 冻结地面摩擦差 0.65；实际进入区域 1 次 | PASS |
+| `low-v1` | 3/3 | 最低平均滑移 0.617427；编码器-真值差 81.6893 mm | PASS |
 
 normal、low、asymmetric、local_patch 使用不同接触条件并产生不同轨迹；
 普通控制器没有读取 `sim_truth`。
 
 ## 8. P5 性能与浏览器
 
-- 汇总 realTimeFactor：0.952036，阈值 ≥ 0.8。
+- 最新生产汇总 realTimeFactor：0.952010，阈值 ≥ 0.8。
 - Webots world 渲染目标：24 FPS。
 - 浏览器 W3D 已连接到生产 stream 隧道；3.002 秒内
   `#webots-clock` 出现 60 次可见更新，即 19.9867 FPS，阈值 ≥ 15 FPS。
 - W3D canvas：1280×544。
+- 携带生产 Origin 的鉴权 WebSocket 握手返回 `101 Switching Protocols`，
+  3 秒接收约 72,413 bytes 场景数据。
 - telemetry：87 帧/4.991615 秒，即 17.229 Hz。
 - 控制周期：8 ms。
 - 10 秒 cgroup 采样：81.99% 单核，约占 8 vCPU 整机 10.25%。
 - Webots stream 内存：240.39 MiB。
 - Mac→SSH 隧道→Dashboard 五次健康请求：
   103.4/234.2/146.0/146.4/144.8 ms，中位数约 146 ms。
-- 画面证据：
+- 最终生产画面证据：
+  `docs/acceptance/evidence/task12-production-webots-dashboard.png`；画面中
+  可见三维蓝色迷宫、橙色小车、车头标记、Webots 时钟和任务遥测面板。
+- 早期 stream 证据：
   `docs/acceptance/evidence/task11-webots-stream.png`。
 - 生产登录页证据：
   `docs/acceptance/evidence/task11-production-login.png`。
@@ -123,9 +140,14 @@ normal、low、asymmetric、local_patch 使用不同接触条件并产生不同�
 
 ## 9. 部署、服务与回滚
 
-当前运行 release：`/srv/maze/releases/20260801T184853Z`  
-当前源码 commit：`6776aedd3449f10dbef2556fbd4b72a9274150ec`  
-回滚目标：`/srv/maze/releases/20260801T183038Z`
+Task 12 功能验收 release：`/srv/maze/releases/20260802T043532Z`
+
+功能源码 commit：`e7a7d19913458f2cc2efb50b78457a626294a365`
+
+验收时回滚目标：`/srv/maze/releases/20260802T033214Z`
+
+最终文档提交使用 `test: complete physical Webots acceptance`，并通过同一
+候选验收脚本重新发布；最终 `/srv/maze/current` 和回滚目标以发布回执为准。
 
 已验证：
 
@@ -136,22 +158,28 @@ normal、low、asymmetric、local_patch 使用不同接触条件并产生不同�
 - `8765/8000/6080/5901` 监听回环地址。
 - Webots 的 1234 由进程监听，但 systemd 网络限制和 UFW 均阻止公网直连。
 - UFW 仅放行 22、80、443。
+- Mac 外网探测确认 1234、8000、8765、5901、6080 均超时。
+- HTTP 自动跳转 HTTPS；生产证书 CN/SAN 均为 `8.ilelezhan.cn`。
 
-尚未关闭：
+生产业务验收：
 
-- 腾讯云公网 80/443 未到达主机，UFW 对两端口的入站计数为 0。
-- Let’s Encrypt 因公网 connect timeout 暂未签发证书。
-- 生产数据库用户数为 0；不能伪造“生产账户登录、租约和任务已验收”。
-- `dcc050c` 尚未形成新的只读生产 release；安全组恢复后应重新部署。
+- 生产数据库已有 2 个独立用户、3 个仿真 run。
+- 双用户登录、租约冲突（409）、非持有人控制拒绝（403）、任意登录用户
+  急停、解除急停、暂停/恢复、租约释放和接管均已验证。
+- 完成 run `run-db9f6bc8-2b19-400f-b88e-a6f1ebeed113` 得分 35.0，
+  保存 37 条事件并可结构化回放。
+- 重启 Dashboard/Webots 服务后，上述用户、run、成绩和回放仍可恢复。
 
-## 10. 关闭 Task 12 前必须补齐
+## 10. Task 12 关闭项
 
-- [ ] 在腾讯云控制台确认当前实例实际绑定的安全组入站规则包含
+- [x] 在腾讯云控制台确认当前实例实际绑定的安全组入站规则包含
   TCP 80、443，来源 `0.0.0.0/0`；不要开放 1234、8000、8765、5901、6080。
-- [ ] 等 Caddy 取得有效证书，外部验证 `/` 与 `/api/health`。
-- [ ] 由用户选择两个生产用户名和密码，使用交互式
+- [x] 等 Caddy 取得有效证书，外部验证 `/` 与 `/api/health`。
+- [x] 由用户选择两个生产用户名和密码，使用交互式
   `python -m rdk_maze_tuner.admin create-user` 创建。
-- [ ] 两个真实生产账户完成登录、租约抢占/释放、任务、急停、成绩和回放。
-- [ ] 发布包含 `dcc050c` 的新只读 release，再验证一次失败精确回滚。
-- [ ] 创建一个真实仿真 run，重启 systemd 后从历史列表恢复。
-
+- [x] 两个真实生产账户完成登录、租约抢占/释放、任务、急停、成绩和回放。
+- [x] 发布包含 `dcc050c` 的新只读 release；两次候选验收失败均自动恢复
+  `/srv/maze/releases/20260801T184853Z`，第三次 PASS 后才切换生产。
+- [x] 创建一个真实仿真 run，重启 systemd 后从历史列表恢复。
+- [x] 生产浏览器直接显示 Webots W3D 小车仿真全过程；没有开放
+  1234/8000/8765/5901/6080 公网端口。

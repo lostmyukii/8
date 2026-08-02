@@ -57,6 +57,14 @@ sudo maze-sim-mode headless
 - `headless`：不渲染，适合自动验收。
 - 三者互斥；切换后 Dashboard 会重连 `127.0.0.1:8765`。
 
+登录 Dashboard 并选择“仿真模式”时，主界面的 Webots 区域会通过
+同源 `/simulation/` WebSocket 自动连接 stream；末尾斜杠用于把 Webots
+所需的根路径完整转发。切换到“真实小车模式”会立即关闭 W3D 连接并清空
+iframe。`/simulation/*` 由 Caddy 先转发到 `/api/auth/authorize` 校验
+会话；鉴权子请求必须移除 `Connection` 和 `Upgrade`，通过后再把原始
+WebSocket upgrade 代理到 Webots。不能把 1234 端口直接暴露到公网。
+画面中的橙色 T 形标记仅用于显示车头方向，不参与碰撞和物理计算。
+
 查看服务：
 
 ```bash
@@ -230,4 +238,3 @@ sudo -u maze env MAZE_DATA_DIR=/srv/maze/shared \
 
 之后按真实硬件顺序执行：串口 ready → 三路 ToF → 编码器 → 低 PWM
 轮向 → 10 cm → 一格 → 45°/90° → 动作中急停 → 2×2/3×3 迷宫。
-

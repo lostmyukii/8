@@ -1297,7 +1297,7 @@ errors
 overall PASS/FAIL
 ```
 
-- [ ] **11.3 新 release 灰度部署**
+- [x] **11.3 新 release 灰度部署**
 
 顺序：
 
@@ -1357,16 +1357,20 @@ Task 11 实施记录（2026-08-01）：
 
 - 自动 runner 使用临时端口、记录 PID、总超时、DeviceSession 和完整
   schema；缺 Webots、协议断开、子进程失败或字段缺失均返回非零。
-- 服务器报告 `physical-20260801T184931Z-6b28a70a` 为 PASS：
+- 生产 release `147a89b` 的报告
+  `physical-20260802T004059Z-5ac6ed08` 为 PASS：
   P1 水平漂移 0 m，P2 三向 ToF 最大误差/重复离散均 0 mm，
   normal 30/30 动作成功，四种摩擦差异全部通过。
-- P5 实测 RTF 0.952、可见更新 19.99 FPS、telemetry 17.23 Hz、
+- P5 生产 RTF 0.952；浏览器实测可见更新 19.99 FPS、
+  telemetry 17.23 Hz、
   8 ms 控制周期；Webots 约占整机 10.25% CPU、240.39 MiB。
 - stream → desktop → stream 已验证，Dashboard 均能重连协议。
-- Python 完整回归在入口修复后为 325 passed；服务器 PlatformIO 为
+- Python 完整回归最终为 330 passed；服务器 PlatformIO 为
   RAM 6.9%、Flash 24.2%。
-- 公网 80/443 当前仍在腾讯云边界超时，主机 UFW 入站计数为 0；
-  因此 11.3 的“公网 HTTPS”一项保持未完成，不能写成部署全绿。
+- 公网 80/443 已到达 Caddy，Let's Encrypt 证书签发成功；外网 `/`
+  返回 200，`/api/health` 正常，其他仿真/管理端口均未暴露。
+- 两次候选因真实物理阈值失败被自动恢复到旧 release；修复采样相位不稳定
+  的验收指标后，第三个候选才完成生产切换。
 
 ### Task 12：完整验收证据、文档和移交
 
@@ -1405,7 +1409,7 @@ done
 git diff --check
 ```
 
-- [ ] **12.3 完整服务器回归**
+- [x] **12.3 完整服务器回归**
 
 在当前 release 目录重新执行：
 
@@ -1416,6 +1420,21 @@ git diff --check
 - Dashboard 登录、控制权、任务、急停、成绩和回放。
 - 本地端口与公网入口检查。
 - systemd 重启后历史 run 恢复。
+
+实施记录（2026-08-02）：
+
+- 生产候选 release 完成 `330 passed`、compileall、JavaScript 静态检查、
+  PlatformIO 和 P1–P4 自动物理验收；最新报告
+  `physical-20260802T043618Z-6eecc7f0` 为 PASS。
+- `maze-webots-stream`、`maze-dashboard`、`caddy` 均为 active；
+  `/api/health` 正常。
+- 两个独立生产账户完成登录、租约冲突/释放/接管、任务、急停、
+  clear_estop、暂停/恢复、成绩与回放验收。
+- 完成 run `run-db9f6bc8-2b19-400f-b88e-a6f1ebeed113` 得分 35.0，
+  保存 37 条事件；服务重启后历史仍可恢复。
+- Caddy 鉴权后的 `/simulation/` WebSocket 返回 101；生产浏览器实际
+  显示三维迷宫、小车、车头方向和运行时钟。
+- 公网只使用 22/80/443；1234/8000/8765/5901/6080 未开放。
 
 - [x] **12.4 明确验收边界**
 
@@ -1446,7 +1465,7 @@ Runbook 包含：
 - 服务切换和精确回滚。
 - 何时可以继续原双模式计划 Task 9。
 
-- [ ] **12.6 最终提交**
+- [x] **12.6 最终提交**
 
 ```text
 test: complete physical Webots acceptance

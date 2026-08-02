@@ -58,6 +58,22 @@ function taskDefinition() {
   return definition;
 }
 
+function taskDefinitionChanged(task, definition) {
+  const taskGoalCell = task.goal?.cell || [];
+  const definitionGoalCell = definition.goal?.cell || [];
+  const physicalProfileChanged =
+    definition.mode === "simulation"
+    && task.physical_profile_id !== definition.physical_profile_id;
+  return (
+    task.mode !== definition.mode
+    || task.map_version !== definition.map_version
+    || task.param_version !== definition.param_version
+    || physicalProfileChanged
+    || taskGoalCell[0] !== definitionGoalCell[0]
+    || taskGoalCell[1] !== definitionGoalCell[1]
+  );
+}
+
 function errorMessage(error) {
   if (error instanceof ApiError) return error.message;
   return error?.message || "操作失败";
@@ -174,15 +190,18 @@ export function bindControls({ refreshState, onAuthenticated, onLogout }) {
     await guardedOperation(
       async () => {
         let task = getAppState().activeTask;
-        const appState = getAppState();
-        const profileChanged =
-          appState.selectedMode === "simulation"
-          && task?.physical_profile_id !== appState.selectedPhysicalProfileId;
-        if (!task || task.mode !== appState.selectedMode || profileChanged) {
-          task = await createTask(taskDefinition());
+        const definition = taskDefinition();
+        if (!task || taskDefinitionChanged(task, definition)) {
+          task = await createTask(definition);
           setActiveTask(task.task_id);
         }
-        await taskOperation(task.task_id, "preflight");
+        const preflight = await taskOperation(task.task_id, "preflight");
+        if (preflight?.preflight?.ok !== true) {
+          await refreshState();
+          throw new Error(
+            preflight?.preflight?.message || "物理安全预检未通过",
+          );
+        }
         await taskOperation(task.task_id, "reset");
         await refreshState();
       },

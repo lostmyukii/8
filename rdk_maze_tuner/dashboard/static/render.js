@@ -461,7 +461,9 @@ function renderTask(task, isController) {
   setText("stepCount", `${task?.step_count || 0} / ${task?.max_steps || 500}`);
   setText("lastStepOutcome", task?.last_step?.outcome || "-");
 
-  const resetAllowed = !task || [
+  const blockedPreflight =
+    status === "PREFLIGHT" && task?.preflight?.ok === false;
+  const resetAllowed = !task || blockedPreflight || [
     "IDLE",
     "COMPLETED",
     "LOST",

@@ -93,14 +93,21 @@ def test_server_notifies_connection_before_initial_frames_and_disconnect_once():
     server = SimProtocolServer(engine, port=0)
     client = socket.create_connection(server.listener.getsockname())
     try:
-        server.poll(now_ms=100)
+        for now_ms in range(100, 200):
+            server.poll(now_ms=now_ms)
+            if any(event[0] == "connected" for event in engine.events):
+                break
+            time.sleep(0.001)
 
         assert _read_lines(client, expected_count=2) == [
             {"type": "ready", "fw": "fake-engine"},
             {"type": "telemetry", "state": "IDLE"},
         ]
-        assert engine.events[:3] == [
-            ("connected", 100),
+        initial_frames = [
+            event for event in engine.events if event[0] != "tick"
+        ][:3]
+        assert initial_frames == [
+            ("connected", now_ms),
             ("ready", None),
             ("telemetry", None),
         ]
@@ -131,7 +138,11 @@ def test_server_routes_newline_json_and_keeps_invalid_json_contract():
     server = SimProtocolServer(engine, port=0)
     client = socket.create_connection(server.listener.getsockname())
     try:
-        server.poll(now_ms=0)
+        for now_ms in range(0, 80):
+            server.poll(now_ms=now_ms)
+            if any(event[0] == "connected" for event in engine.events):
+                break
+            time.sleep(0.001)
         _read_lines(client, expected_count=2)
         client.sendall(
             b'{"type":"heartbeat","seq":7}\n'

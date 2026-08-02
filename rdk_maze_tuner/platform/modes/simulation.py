@@ -150,7 +150,13 @@ class SimulationModeAdapter(ModeAdapter):
                     result.update(
                         ok=False,
                         code=report.code,
-                        message="physical map passage is unsafe",
+                        message=(
+                            "物理通道不安全：净通道 "
+                            f"{report.actual_passage_x_mm:g} × "
+                            f"{report.actual_passage_y_mm:g} mm，"
+                            "至少需要 "
+                            f"{report.minimum_required_passage_mm:g} mm"
+                        ),
                     )
         return result
 

@@ -309,6 +309,11 @@ def test_unsafe_physical_map_stays_at_preflight_without_creating_run(
     assert blocked["status"] == "PREFLIGHT"
     assert blocked["preflight"]["code"] == "MAP_GEOMETRY_UNSAFE"
     assert blocked["run_id"] is None
+    with pytest.raises(
+        TaskConflictError,
+        match="reset requires a successful PREFLIGHT",
+    ):
+        orchestrator.reset(created["task_id"])
     with database.connection() as connection:
         assert connection.execute(
             "SELECT COUNT(*) FROM runs"

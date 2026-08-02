@@ -259,4 +259,7 @@ def test_simulation_preflight_rejects_unsafe_map_from_task_context():
 
     assert result["ok"] is False
     assert result["code"] == "MAP_GEOMETRY_UNSAFE"
+    assert result["message"] == (
+        "物理通道不安全：净通道 280 × 280 mm，至少需要 320 mm"
+    )
     assert result["physical_preflight"]["actual_passage_x_mm"] == 280.0

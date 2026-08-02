@@ -218,6 +218,29 @@ def test_dashboard_controls_cover_auth_lease_tasks_and_shared_estop():
     assert "disabled" in render_source
 
 
+def test_dashboard_reset_rebuilds_changed_task_and_blocks_failed_preflight():
+    controls_source = (STATIC_DIR / "controls.js").read_text(
+        encoding="utf-8"
+    )
+    render_source = (STATIC_DIR / "render.js").read_text(encoding="utf-8")
+
+    assert (
+        "function taskDefinitionChanged(task, definition)"
+        in controls_source
+    )
+    for field in (
+        "map_version",
+        "param_version",
+        "physical_profile_id",
+    ):
+        assert f"task.{field} !== definition.{field}" in controls_source
+    assert "task.goal?.cell" in controls_source
+    assert "preflight?.preflight?.ok !== true" in controls_source
+    assert "preflight?.preflight?.message" in controls_source
+    assert "blockedPreflight" in render_source
+    assert 'status === "PREFLIGHT"' in render_source
+
+
 def test_dashboard_replay_uses_scored_monotonic_timeline_contract():
     api_source = (STATIC_DIR / "api.js").read_text(encoding="utf-8")
     replay_source = (STATIC_DIR / "replay.js").read_text(encoding="utf-8")

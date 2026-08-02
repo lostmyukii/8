@@ -319,6 +319,7 @@ class TaskOrchestrator:
             if (
                 task.machine.status is not TaskStatus.PREFLIGHT
                 or task.preflight_result is None
+                or task.preflight_result.get("ok") is not True
             ):
                 raise TaskConflictError(
                     "reset requires a successful PREFLIGHT"

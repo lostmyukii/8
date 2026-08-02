@@ -12,6 +12,7 @@ from typing import Any, Callable, Mapping, Protocol
 
 from rdk_maze_tuner.core.device_session import DeviceDisconnectedError
 from rdk_maze_tuner.core.maze_runner import MazeStepResult
+from rdk_maze_tuner.core.motion_evidence import ArrivalVerificationConfig
 
 from .database import Database
 from .event_store import EventStore
@@ -110,6 +111,7 @@ class TaskRecord:
     physical_profile_digest: str | None
     physical_profile_snapshot: dict[str, Any] | None
     random_seed: int | None
+    arrival_verification_snapshot: dict[str, Any]
     created_by_user_id: str | None
     created_at_utc: str
     controller_version: str | None = None
@@ -150,6 +152,9 @@ class TaskOrchestrator:
             PhysicalProfileRepository | None
         ) = None,
         map_goal_resolver: MapGoalResolver | None = None,
+        arrival_verification_provider: (
+            Callable[[], Mapping[str, Any]] | None
+        ) = None,
     ) -> None:
         self.database = database
         self.event_store = event_store
@@ -168,6 +173,10 @@ class TaskOrchestrator:
             or PhysicalProfileRepository(database=database)
         )
         self.map_goal_resolver = map_goal_resolver
+        self.arrival_verification_provider = (
+            arrival_verification_provider
+            or (lambda: ArrivalVerificationConfig().to_dict())
+        )
         self.physical_profile_repository.sync_from_yaml()
         self._condition = threading.Condition(threading.RLock())
         self._tasks: dict[str, TaskRecord] = {}
@@ -219,6 +228,17 @@ class TaskOrchestrator:
             mode=mode,
             physical_profile_id=physical_profile_id,
         )
+        try:
+            arrival_verification_snapshot = (
+                ArrivalVerificationConfig.from_mapping(
+                    self.arrival_verification_provider()
+                ).to_dict()
+            )
+        except (TypeError, ValueError) as exc:
+            raise TaskValidationError(
+                f"invalid arrival verification config: {exc}",
+                code="ARRIVAL_VERIFICATION_INVALID",
+            ) from exc
         if (
             not isinstance(max_steps, int)
             or isinstance(max_steps, bool)
@@ -257,6 +277,9 @@ class TaskOrchestrator:
                     None
                     if physical_profile is None
                     else physical_profile.random_seed
+                ),
+                arrival_verification_snapshot=(
+                    arrival_verification_snapshot
                 ),
                 created_by_user_id=created_by_user_id,
                 created_at_utc=_utc_text(self.utc_now()),
@@ -1057,6 +1080,9 @@ class TaskOrchestrator:
                     task.physical_profile_snapshot
                 ),
                 "random_seed": task.random_seed,
+                "arrival_verification_snapshot": (
+                    task.arrival_verification_snapshot
+                ),
                 "controller_version": task.controller_version,
                 "webots_version": task.webots_version,
             },
@@ -1246,6 +1272,9 @@ class TaskOrchestrator:
                 task.physical_profile_snapshot
             ),
             "random_seed": task.random_seed,
+            "arrival_verification_snapshot": _json_ready(
+                task.arrival_verification_snapshot
+            ),
             "controller_version": task.controller_version,
             "webots_version": task.webots_version,
             "goal": _json_ready(task.goal),
@@ -1369,6 +1398,9 @@ def _task_definition_snapshot(task: TaskRecord) -> dict[str, Any]:
         "physical_profile_id": task.physical_profile_id,
         "physical_profile_digest": task.physical_profile_digest,
         "random_seed": task.random_seed,
+        "arrival_verification_snapshot": _json_ready(
+            task.arrival_verification_snapshot
+        ),
     }
 
 

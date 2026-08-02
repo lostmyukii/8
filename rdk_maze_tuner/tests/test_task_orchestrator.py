@@ -173,7 +173,13 @@ class RouteEventRunner:
         return step_result("goal_reached")
 
 
-def make_orchestrator(tmp_path, runners, *, run_finalizer=None):
+def make_orchestrator(
+    tmp_path,
+    runners,
+    *,
+    run_finalizer=None,
+    arrival_verification_provider=None,
+):
     database = Database(tmp_path / "platform.sqlite3")
     database.initialize()
     physical_profiles = PhysicalProfileRepository(database=database)
@@ -196,6 +202,7 @@ def make_orchestrator(tmp_path, runners, *, run_finalizer=None):
         utc_now=lambda: datetime(2026, 8, 1, 12, 0, tzinfo=UTC),
         run_finalizer=run_finalizer,
         physical_profile_repository=physical_profiles,
+        arrival_verification_provider=arrival_verification_provider,
     )
     return database, events, adapter, orchestrator
 
@@ -273,6 +280,65 @@ def test_orchestrator_persists_route_planned_as_runner_event(tmp_path):
     assert route_event["source"] == "maze_runner"
     assert route_event["payload"]["start"] == [0, 4]
     assert route_event["payload"]["goal"] == [4, 0]
+
+
+def test_task_and_run_freeze_arrival_verification_snapshot(tmp_path):
+    thresholds = {
+        "nominal_position_error_ratio": 0.10,
+        "recoverable_position_error_ratio": 0.20,
+        "nominal_heading_error_deg": 8.0,
+        "recoverable_heading_error_deg": 12.0,
+        "goal_min_confidence": 0.80,
+        "max_recovery_attempts_per_cell": 2,
+    }
+    database, events, _adapter, orchestrator = make_orchestrator(
+        tmp_path,
+        [ScriptedRunner(["goal_reached"])],
+        arrival_verification_provider=lambda: dict(thresholds),
+    )
+
+    first = orchestrator.create_task(
+        run_kind="exploration_complete",
+        mode="simulation",
+        map_version="map-v1",
+        param_version="param-v1",
+        goal={"type": "exploration_complete"},
+    )
+    thresholds["goal_min_confidence"] = 0.85
+    assert first["arrival_verification_snapshot"][
+        "goal_min_confidence"
+    ] == 0.80
+    assert first["recent_events"][0]["payload"][
+        "arrival_verification_snapshot"
+    ]["goal_min_confidence"] == 0.80
+
+    orchestrator.preflight(first["task_id"])
+    ready = orchestrator.reset(first["task_id"])
+    with database.connection() as connection:
+        metadata = json.loads(
+            connection.execute(
+                "SELECT metadata_json FROM runs WHERE id = ?",
+                (ready["run_id"],),
+            ).fetchone()["metadata_json"]
+        )
+    assert metadata["arrival_verification_snapshot"][
+        "goal_min_confidence"
+    ] == 0.80
+
+    second = orchestrator.create_task(
+        run_kind="exploration_complete",
+        mode="simulation",
+        map_version="map-v1",
+        param_version="param-v2",
+        goal={"type": "exploration_complete"},
+    )
+    assert second["arrival_verification_snapshot"][
+        "goal_min_confidence"
+    ] == 0.85
+    assert not any(
+        event["type"] == "task.started"
+        for event in events.list_events(ready["run_id"])
+    )
 
 
 def test_simulation_task_defaults_profile_and_run_freezes_exact_snapshot(

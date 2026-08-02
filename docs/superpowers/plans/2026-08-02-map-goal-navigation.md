@@ -606,7 +606,42 @@ Commit：
 feat: add immutable motion arrival evidence
 ```
 
-实施记录在执行 Task 6 时写入本节。
+**Task 6 实施记录（2026-08-02）：**
+
+- RED：
+  - 四文件目标命令在收集阶段得到 `1 error`，明确缺少
+    `rdk_maze_tuner.core.motion_evidence`。
+  - 排除该缺失模块后得到 `21 failed, 7 passed in 0.75s`；失败覆盖缺少阈值配置、
+    非有限值仍可进入参数、自动调参未显式过滤完成判据，以及编排器没有快照 provider。
+- 最小实现：
+  - 新增冻结类型 `ArrivalVerificationConfig`、`MotionEvidenceInput`、
+    `MotionEvidenceDecision`、`RecoverySuggestion` 和纯 `MotionEvidenceGate`。
+  - 默认值精确冻结为位置 `0.10/0.20`、车头 `8°/12°`、最低置信度 `0.80`、每格
+    最多修正 `2` 次；严格拒绝未知字段、缺字段、布尔冒充数字、非法关系、越界和
+    `NaN/Inf`。
+  - 判定顺序固定：低置信度 `POSE_UNCERTAIN`，编码器明显运动而外部位移近零
+    `WHEEL_SLIP_DETECTED`，名义范围 `accepted`，可恢复范围生成有限
+    `nudge_forward/align_heading`，超限或用尽次数为 `unsafe`。
+  - `MotionEvidenceInput.from_mapping` 明确丢弃 `sim_truth`，相同算法证据在极端不同
+    真值下生成完全相同决定。
+  - 参数 YAML 增加 `arrival_verification`；`ParamManager` 在载入和原子更新后都用
+    冻结类型复核，并拒绝 `source=auto_tune` 修改该命名空间。完成阈值不在
+    `ESP32_EXPORTS`。
+  - `AutoTuner` 增加显式 allowlist，即使某条规则错误提出完成阈值也会在提案阶段
+    被过滤。
+  - `TaskOrchestrator.create_task` 从 provider 复制并校验完整阈值；同一快照进入
+    任务、`task.created` 和 run metadata。之后 provider/参数变化不会回写旧任务。
+- 目标测试：`37 passed in 1.17s`；其中 `450 -> 365 mm` 位置误差
+  `85/450 ≈ 18.89%`，稳定判为 `recoverable`。
+- 完整回归：
+  - `compileall` 通过；
+  - Python `379 passed in 5.74s`；
+  - `api.js/state.js/render.js/controls.js/replay.js` 全部通过 `node --check`；
+  - ESP32 PlatformIO 构建通过，RAM `22744/327680` bytes，Flash
+    `317041/1310720` bytes。
+- 边界：本 Task 只提供纯证据判定与不可变配置；`MazeRunner` 仍未调用证据门，
+  因而格子推进语义尚未改变，修正动作也尚未发送。未修改固件或部署正式站点，
+  未执行 Webots/真车路线验收。
 
 ### Task 7：让 MazeRunner 依据融合证据推进格子
 

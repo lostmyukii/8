@@ -9,6 +9,18 @@ from .param_manager import ParamManager
 
 
 class AutoTuner:
+    TUNABLE_PATHS = frozenset(
+        {
+            "motor.base_speed",
+            "motor.turn_speed",
+            "motor.left_trim",
+            "motor.right_trim",
+            "motion.cell_ticks",
+            "motion.turn_90_ticks",
+            "tof.front_stop_mm",
+        }
+    )
+
     def __init__(self, params: ParamManager) -> None:
         self.params = params
 
@@ -21,6 +33,8 @@ class AutoTuner:
 
         for issue in report.issues:
             for path, value in self._updates_for_issue(issue).items():
+                if path not in self.TUNABLE_PATHS:
+                    continue
                 if path in updates:
                     continue
                 updates[path] = self._clamp_to_limit(path, value)
@@ -86,4 +100,3 @@ class AutoTuner:
         if isinstance(current, float):
             return round(float(value), 4)
         return value
-

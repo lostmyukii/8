@@ -257,6 +257,11 @@ def create_app(
             run_finalizer=run_finalizer,
             physical_profile_repository=resolved_physical_profiles,
             map_goal_resolver=resolved_goal_resolver,
+            arrival_verification_provider=lambda: (
+                dashboard_state.params
+                .arrival_verification_config()
+                .to_dict()
+            ),
         )
     else:
         resolved_tasks = task_orchestrator

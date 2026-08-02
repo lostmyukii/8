@@ -4,8 +4,12 @@ from __future__ import annotations
 
 import ast
 import copy
+from math import isfinite
+from numbers import Real
 from pathlib import Path
 from typing import Any, Dict, Mapping, MutableMapping
+
+from .motion_evidence import ArrivalVerificationConfig
 
 
 class ParamValidationError(ValueError):
@@ -49,6 +53,7 @@ class ParamManager:
         self.limits_path = limits_path
         self.params = _load_mapping(params_path)
         self.limits = _load_mapping(limits_path)
+        self._arrival_config_from(self.params)
         self.param_version = 1
 
     def get(self, dotted_path: str) -> Any:
@@ -64,12 +69,23 @@ class ParamManager:
         next_params = copy.deepcopy(self.params)
 
         for dotted_path, new_value in updates.items():
-            old_value = self.get(dotted_path)
             self._validate(dotted_path, new_value)
+            if (
+                source == "auto_tune"
+                and dotted_path.startswith("arrival_verification.")
+            ):
+                raise ParamValidationError(
+                    "auto_tune cannot modify arrival_verification parameters"
+                )
+            old_value = self.get(dotted_path)
             self._set(next_params, dotted_path, new_value)
             if old_value != new_value:
                 changes[dotted_path] = [old_value, new_value]
 
+        try:
+            self._arrival_config_from(next_params)
+        except ValueError as exc:
+            raise ParamValidationError(str(exc)) from exc
         if changes:
             self.params = next_params
             self.param_version += 1
@@ -91,6 +107,9 @@ class ParamManager:
         exported["param_version"] = self.param_version
         return exported
 
+    def arrival_verification_config(self) -> ArrivalVerificationConfig:
+        return self._arrival_config_from(self.params)
+
     def snapshot(self) -> Dict[str, Any]:
         return {
             "param_version": self.param_version,
@@ -108,8 +127,34 @@ class ParamManager:
         if not isinstance(bounds, list) or len(bounds) != 2:
             raise ParamValidationError(f"{dotted_path} has invalid limit definition")
         lower, upper = bounds
+        if (
+            not isinstance(value, Real)
+            or isinstance(value, bool)
+            or not isfinite(float(value))
+        ):
+            raise ParamValidationError(
+                f"{dotted_path} must be a finite numeric value"
+            )
+        current = self.get(dotted_path)
+        if (
+            isinstance(current, int)
+            and not isinstance(current, bool)
+            and not isinstance(value, int)
+        ):
+            raise ParamValidationError(f"{dotted_path} must be an integer")
         if value < lower or value > upper:
             raise ParamValidationError(f"{dotted_path}={value!r} outside [{lower!r}, {upper!r}]")
+
+    @staticmethod
+    def _arrival_config_from(
+        params: Mapping[str, Any],
+    ) -> ArrivalVerificationConfig:
+        value = params.get("arrival_verification")
+        if not isinstance(value, Mapping):
+            raise ParamValidationError(
+                "arrival_verification must be a mapping"
+            )
+        return ArrivalVerificationConfig.from_mapping(value)
 
     def _set(self, root: MutableMapping[str, Any], dotted_path: str, value: Any) -> None:
         node: MutableMapping[str, Any] = root

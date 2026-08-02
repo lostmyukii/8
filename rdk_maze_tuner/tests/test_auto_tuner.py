@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import pytest
+
 from rdk_maze_tuner.core.auto_tuner import AutoTuner
 from rdk_maze_tuner.core.motion_analyzer import MotionReport
 from rdk_maze_tuner.core.param_manager import ParamManager
@@ -61,3 +63,35 @@ def test_auto_tuner_clamps_to_limits():
 
     assert event["changes"]["tof.front_stop_mm"] == [245, 250]
 
+
+def test_auto_tuner_filters_arrival_verification_even_if_rule_proposes_it(
+    monkeypatch,
+):
+    params = manager()
+    tuner = AutoTuner(params)
+    monkeypatch.setattr(
+        tuner,
+        "_updates_for_issue",
+        lambda _issue: {
+            "arrival_verification.goal_min_confidence": 0.50,
+            "motor.base_speed": 0.20,
+        },
+    )
+
+    updates = tuner.propose(report("synthetic"))
+
+    assert updates == {"motor.base_speed": 0.20}
+    assert all(
+        not path.startswith("arrival_verification.")
+        for path in updates
+    )
+
+
+def test_auto_tuner_direct_arrival_update_is_rejected():
+    params = manager()
+
+    with pytest.raises(Exception, match="cannot modify"):
+        params.apply_updates(
+            {"arrival_verification.goal_min_confidence": 0.50},
+            source="auto_tune",
+        )

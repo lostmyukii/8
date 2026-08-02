@@ -446,6 +446,8 @@ def test_caddy_keeps_simulation_behind_platform_authentication():
     assert "@simulation path /simulation /simulation/*" in caddyfile
     assert "forward_auth 127.0.0.1:8000" in caddyfile
     assert "uri /api/auth/authorize" in caddyfile
+    assert "header_up -Connection" in caddyfile
+    assert "header_up -Upgrade" in caddyfile
     assert "uri strip_prefix /simulation" in caddyfile
     assert "reverse_proxy 127.0.0.1:1234" in caddyfile
     assert "reverse_proxy 127.0.0.1:8000" in caddyfile

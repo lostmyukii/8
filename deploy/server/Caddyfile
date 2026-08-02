@@ -14,6 +14,8 @@
 	handle @simulation {
 		forward_auth 127.0.0.1:8000 {
 			uri /api/auth/authorize
+			header_up -Connection
+			header_up -Upgrade
 		}
 		uri strip_prefix /simulation
 		reverse_proxy 127.0.0.1:1234

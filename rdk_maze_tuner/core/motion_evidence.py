@@ -113,6 +113,7 @@ class MotionEvidenceInput:
     pose_confidence: float
     recovery_attempts: int = 0
     correction_evidence_available: bool = False
+    external_evidence_available: bool = True
 
     @classmethod
     def from_mapping(cls, value: Mapping[str, Any]) -> "MotionEvidenceInput":
@@ -296,10 +297,16 @@ class MotionEvidenceGate:
             or evidence.recovery_attempts < 0
         ):
             raise ValueError("recovery_attempts must be a non-negative integer")
+        if not isinstance(evidence.external_evidence_available, bool):
+            raise ValueError(
+                "external_evidence_available must be boolean"
+            )
 
     @staticmethod
     def _wheel_slip_detected(evidence: MotionEvidenceInput) -> bool:
         if evidence.action_name != "move_cell":
+            return False
+        if not evidence.external_evidence_available:
             return False
         expected = evidence.expected_distance_mm
         if expected <= 0:

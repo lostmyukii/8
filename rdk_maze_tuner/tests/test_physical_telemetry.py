@@ -88,6 +88,8 @@ def test_physical_telemetry_provider_consumes_only_device_sample():
     telemetry = PhysicalTelemetryProvider(
         profile_id=profile.profile_id,
         profile_digest=profile.digest,
+        tof_min_range_mm=profile.tof.min_range_m * 1000.0,
+        tof_max_range_mm=profile.tof.max_range_m * 1000.0,
     ).build(device_sample())
 
     assert telemetry["type"] == "telemetry"
@@ -100,9 +102,12 @@ def test_physical_telemetry_provider_consumes_only_device_sample():
     assert telemetry["imu_yaw_deg"] == 1.2
     assert telemetry["controller_period_ms"] == 8
     assert telemetry["friction_profile"] == "normal"
+    assert telemetry["tof_min_range_mm"] == 30.0
+    assert telemetry["tof_max_range_mm"] == 2000.0
     assert telemetry["physical_profile_id"] == "normal-v1"
     assert telemetry["physical_profile_digest"] == profile.digest
     assert "sim_truth" not in telemetry
+    assert extract_fusion_telemetry(telemetry)["tof_max_range_mm"] == 2000.0
 
 
 def test_truth_observer_has_an_evaluation_only_allowlist():

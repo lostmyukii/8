@@ -31,6 +31,7 @@ class PoseFusionConfig:
     cell_ticks: float
     turn_90_ticks: float
     wheel_base_mm: float
+    encoder_calibration_distance_mm: float | None = None
     y_axis_down: bool = True
     wall_outlier_limit_mm: float = 180.0
 
@@ -45,13 +46,22 @@ class PoseFusionConfig:
         ):
             if float(getattr(self, name)) <= 0:
                 raise ValueError(f"{name} must be positive")
+        if (
+            self.encoder_calibration_distance_mm is not None
+            and float(self.encoder_calibration_distance_mm) <= 0
+        ):
+            raise ValueError(
+                "encoder_calibration_distance_mm must be positive"
+            )
 
     @property
     def mm_per_tick(self) -> float:
-        nominal_cell_mm = (
-            float(self.cell_width_mm) + float(self.cell_height_mm)
-        ) / 2.0
-        return nominal_cell_mm / float(self.cell_ticks)
+        calibration_mm = self.encoder_calibration_distance_mm
+        if calibration_mm is None:
+            calibration_mm = (
+                float(self.cell_width_mm) + float(self.cell_height_mm)
+            ) / 2.0
+        return float(calibration_mm) / float(self.cell_ticks)
 
     @property
     def yaw_deg_per_differential_tick(self) -> float:

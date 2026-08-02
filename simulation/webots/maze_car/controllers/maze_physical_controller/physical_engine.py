@@ -551,6 +551,8 @@ class PhysicalMazeEngine:
         return PhysicalTelemetryProvider(
             profile_id=self.profile.profile_id,
             profile_digest=self.profile.digest,
+            tof_min_range_mm=self.profile.tof.min_range_m * 1000.0,
+            tof_max_range_mm=self.profile.tof.max_range_m * 1000.0,
         )
 
     def _build_telemetry(

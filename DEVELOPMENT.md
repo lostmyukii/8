@@ -247,6 +247,12 @@ Webots 可发送同名的确定性 IMU 字段，并把 `sim_truth` 放在独立�
 `fusion_left_mm`、`fusion_right_mm` 作为连续墙距；融合器优先使用这些字段，
 规划器继续读取 `front_mm`、`left_mm`、`right_mm`。
 
+物理设备还可以发送 `tof_min_range_mm`、`tof_max_range_mm`。达到量程边界、
+掉线或被限幅的 ToF 读数不能作为墙面位置/轮滑的独立证据；缺少有效外部
+位移证据时允许退化为“编码器 + IMU”判断，但不得据此宣称已经验证轮滑。
+`motion.cell_ticks` 始终对应 `robot.cell_size_cm` 的标定距离，地图格尺寸只用于
+把目标距离换算成目标 tick，不能反向改变编码器的毫米/脉冲标定比例。
+
 动作完成：
 
 ```json

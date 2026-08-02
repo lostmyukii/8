@@ -12,6 +12,8 @@ from .physical_types import PhysicalDeviceSample
 class PhysicalTelemetryProvider:
     profile_id: str
     profile_digest: str
+    tof_min_range_mm: float
+    tof_max_range_mm: float
 
     def build(
         self,
@@ -35,6 +37,8 @@ class PhysicalTelemetryProvider:
             "front_mm": sample.front_mm,
             "left_mm": sample.left_mm,
             "right_mm": sample.right_mm,
+            "tof_min_range_mm": self.tof_min_range_mm,
+            "tof_max_range_mm": self.tof_max_range_mm,
             "imu_available": sample.imu_available,
             "imu_yaw_deg": sample.imu_yaw_deg,
             "yaw_rate_dps": sample.yaw_rate_dps,

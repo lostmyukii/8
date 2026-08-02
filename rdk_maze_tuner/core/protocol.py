@@ -23,6 +23,8 @@ FUSION_TELEMETRY_FIELDS = frozenset(
         "fusion_right_mm",
         "back_mm",
         "fusion_back_mm",
+        "tof_min_range_mm",
+        "tof_max_range_mm",
         "imu_available",
         "imu_yaw_deg",
         "yaw_rate_dps",

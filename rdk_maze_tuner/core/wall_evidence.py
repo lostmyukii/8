@@ -89,6 +89,14 @@ class WallEvidenceBuilder:
         normalized_heading = Direction(heading)
         constraints: list[WallConstraint] = []
         references: list[WallDistanceReference] = []
+        quality_flags = {
+            str(item)
+            for item in telemetry.get("quality_flags", ())
+            if str(item)
+        }
+        maximum_range_mm = _valid_positive_distance(
+            telemetry.get("tof_max_range_mm")
+        )
         for local, fusion_field, raw_field in self._SENSORS:
             distance = _valid_distance(
                 telemetry.get(
@@ -96,7 +104,12 @@ class WallEvidenceBuilder:
                     telemetry.get(raw_field),
                 )
             )
-            if distance is None:
+            if distance is None or _unusable_sensor_distance(
+                local=local,
+                distance_mm=distance,
+                maximum_range_mm=maximum_range_mm,
+                quality_flags=quality_flags,
+            ):
                 continue
             direction = local_to_global(normalized_heading, local)
             coordinate = self.nearest_planned_wall_coordinate(
@@ -197,3 +210,31 @@ def _valid_distance(value: object) -> float | None:
     if not isfinite(distance) or not 0.0 <= distance <= 5000.0:
         return None
     return distance
+
+
+def _valid_positive_distance(value: object) -> float | None:
+    distance = _valid_distance(value)
+    if distance is None or distance <= 0.0:
+        return None
+    return distance
+
+
+def _unusable_sensor_distance(
+    *,
+    local: str,
+    distance_mm: float,
+    maximum_range_mm: float | None,
+    quality_flags: set[str],
+) -> bool:
+    invalid_flags = {
+        f"tof_{local}_non_finite",
+        f"tof_{local}_clamped_low",
+        f"tof_{local}_clamped_high",
+        f"tof_{local}_dropout",
+    }
+    if quality_flags.intersection(invalid_flags):
+        return True
+    if maximum_range_mm is None:
+        return False
+    saturation_margin_mm = max(1.0, maximum_range_mm * 0.005)
+    return distance_mm >= maximum_range_mm - saturation_margin_mm

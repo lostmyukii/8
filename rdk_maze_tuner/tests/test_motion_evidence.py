@@ -28,6 +28,7 @@ def evidence(**overrides) -> MotionEvidenceInput:
         "pose_confidence": 0.90,
         "recovery_attempts": 0,
         "correction_evidence_available": True,
+        "external_evidence_available": True,
     }
     values.update(overrides)
     return MotionEvidenceInput(**values)
@@ -115,6 +116,20 @@ def test_encoder_motion_without_external_motion_is_wheel_slip():
 
     assert decision.status == "unsafe"
     assert decision.code == WHEEL_SLIP_DETECTED
+
+
+def test_missing_external_motion_evidence_falls_back_to_encoders():
+    decision = MotionEvidenceGate().evaluate(
+        evidence(
+            measured_distance_mm=448.0,
+            encoder_displacement_mm=448.0,
+            external_displacement_mm=0.0,
+            external_evidence_available=False,
+        )
+    )
+
+    assert decision.status == "accepted"
+    assert decision.code is None
 
 
 def test_low_pose_confidence_is_unsafe():

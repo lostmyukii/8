@@ -181,6 +181,7 @@ class TaskPoseTracker:
                 wheel_base_mm=(
                     float(params.get("robot.wheel_base_cm")) * 10.0
                 ),
+                encoder_calibration_distance_mm=fallback_cell_mm,
                 y_axis_down=bool(
                     getattr(maze, "_screen_coordinates", False)
                 ),
@@ -382,6 +383,7 @@ class TaskPoseTracker:
                 pose.continuous_heading_valid
                 or walls.independent_axes >= 1
             ),
+            external_evidence_available=external_distance is not None,
         )
         if result_type == "error" or result.get("success") is False:
             decision = MotionEvidenceDecision(

@@ -10,7 +10,6 @@ from rdk_maze_tuner.core.maze_definition import (
 from rdk_maze_tuner.core.maze_map import Direction, MazeMap, PlannedAction
 from rdk_maze_tuner.core.motion_evidence import (
     POSE_UNCERTAIN,
-    WHEEL_SLIP_DETECTED,
     ArrivalVerificationConfig,
 )
 from rdk_maze_tuner.core.motion_targets import MotionTarget
@@ -49,6 +48,28 @@ def corridor_definition() -> MapDefinition:
     )
 
 
+def long_corridor_definition() -> MapDefinition:
+    rows = 1
+    cols = 5
+    boundary = (
+        *(WallSegment(x, 0, x + 1, 0) for x in range(cols)),
+        *(WallSegment(x, rows, x + 1, rows) for x in range(cols)),
+        *(WallSegment(0, y, 0, y + 1) for y in range(rows)),
+        *(WallSegment(cols, y, cols, y + 1) for y in range(rows)),
+    )
+    return MapDefinition(
+        rows=rows,
+        cols=cols,
+        cell_width_mm=450,
+        cell_height_mm=450,
+        wall_thickness_mm=40,
+        wall_height_mm=180,
+        start=StartPose(x=0, y=0, heading="E"),
+        goals=((4, 0),),
+        walls=boundary,
+    )
+
+
 def tracker(
     *,
     conflict_required_samples: int = 3,
@@ -79,8 +100,8 @@ def move_target() -> MotionTarget:
         action_name="move_cell",
         direction="N",
         distance_mm=450.0,
-        ticks_per_mm=3.0,
-        target_ticks=1350,
+        ticks_per_mm=5.4,
+        target_ticks=2430,
         source="map.cell_height_mm",
     )
 
@@ -107,8 +128,8 @@ def done_message(**overrides):
         "name": "move_cell",
         "success": True,
         "duration_ms": 1000,
-        "enc_left": 1350,
-        "enc_right": 1350,
+        "enc_left": 2430,
+        "enc_right": 2430,
         "front_mm": 225.0,
         "left_mm": 225.0,
         "right_mm": 225.0,
@@ -220,8 +241,8 @@ def test_encoder_is_never_reused_as_external_motion_without_longitudinal_wall():
     assert tracked.external_evidence_available is False
     assert tracked.evidence.external_displacement_mm == 0.0
     assert tracked.evidence.encoder_displacement_mm == pytest.approx(450.0)
-    assert tracked.decision.status == "unsafe"
-    assert tracked.decision.code == WHEEL_SLIP_DETECTED
+    assert tracked.decision.status == "accepted"
+    assert tracked.decision.code is None
 
 
 def test_no_imu_needs_success_stable_heading_and_two_independent_wall_axes():
@@ -315,3 +336,72 @@ def test_sim_truth_is_absent_from_tracker_inputs_and_motion_evidence():
 
     assert "sim_truth" not in pose_tracker.last_fusion_input
     assert "sim_truth" not in str(tracked.to_dict())
+
+
+def test_map_scale_does_not_redefine_encoder_calibration_or_fake_slip():
+    params = ParamManager(
+        params_path=__import__("pathlib").Path(PARAMS),
+        limits_path=__import__("pathlib").Path(LIMITS),
+    )
+    maze = MazeMap.from_definition(
+        long_corridor_definition(),
+        wall_threshold_mm=150,
+        map_version_id="long-corridor-v1",
+    )
+    pose_tracker = TaskPoseTracker.from_params(
+        maze=maze,
+        params=params,
+        arrival_config=ArrivalVerificationConfig(),
+        run_id="run-map-scale",
+    )
+    action = PlannedAction("move_cell", Direction.EAST)
+    target = MotionTarget(
+        action_name="move_cell",
+        direction="E",
+        distance_mm=450.0,
+        ticks_per_mm=5.4,
+        target_ticks=2430,
+        source="map.cell_width_mm",
+    )
+    baseline = {
+        "type": "telemetry",
+        "ts_ms": 0,
+        "enc_left": 0,
+        "enc_right": 0,
+        "front_mm": 2000.0,
+        "left_mm": 225.0,
+        "right_mm": 225.0,
+        "tof_max_range_mm": 2000.0,
+        "imu_available": True,
+        "imu_yaw_deg": 90.0,
+    }
+    pose_tracker.begin_action(
+        action_id="move-scaled",
+        action=action,
+        telemetry=baseline,
+    )
+    tracked = pose_tracker.complete_action(
+        action_id="move-scaled",
+        action=action,
+        result={
+            **baseline,
+            "type": "done",
+            "action_id": "move-scaled",
+            "name": "move_cell",
+            "success": True,
+            "duration_ms": 3000,
+            "ts_ms": 3000,
+            "enc_left": 2430,
+            "enc_right": 2430,
+        },
+        motion_target=target,
+    )
+
+    assert pose_tracker.fusion.config.mm_per_tick == pytest.approx(
+        250.0 / 1350.0
+    )
+    assert tracked.evidence.encoder_displacement_mm == pytest.approx(450.0)
+    assert tracked.external_evidence_available is False
+    assert tracked.decision.status == "accepted"
+    assert tracked.decision.code is None
+    assert tracked.pose.x_mm == pytest.approx(675.0, abs=30.0)

@@ -60,6 +60,8 @@ SIMULATION_ONLY_TELEMETRY_FIELDS = (
     "fusion_front_mm",
     "fusion_left_mm",
     "fusion_right_mm",
+    "tof_min_range_mm",
+    "tof_max_range_mm",
     "truth_error_cm",
     "truth_yaw_error_deg",
     "truth_evaluation_only",
@@ -596,6 +598,7 @@ class DashboardState:
                 self.params.get("robot.wheel_base_cm")
             )
             * 10.0,
+            encoder_calibration_distance_mm=cell_size_mm,
             y_axis_down=bool(
                 getattr(self.maze, "_screen_coordinates", False)
             ),

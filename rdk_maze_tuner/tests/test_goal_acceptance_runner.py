@@ -12,6 +12,7 @@ from simulation.webots.maze_car.tools.run_goal_acceptance import (
     GoalAcceptanceRunner,
     evaluate_truth_safety,
     exit_code_for_report,
+    goal_webots_command,
 )
 
 
@@ -417,3 +418,13 @@ def test_truth_safety_is_evaluation_only_but_must_be_measured():
         "out_of_bounds_count": 0,
         "wall_crossing_count": 0,
     }
+
+
+def test_p5_uses_realtime_physics_so_wall_clock_heartbeat_stays_valid():
+    command = goal_webots_command(
+        Path("/usr/local/bin/webots"),
+        Path("simulation/webots/maze_car/worlds/maze_physical_calibration.wbt"),
+    )
+
+    assert "--mode=realtime" in command
+    assert "--mode=fast" not in command

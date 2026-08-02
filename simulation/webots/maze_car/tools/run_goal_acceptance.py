@@ -362,10 +362,9 @@ class GoalAcceptanceRunner:
             raise RuntimeError("isolated map import changed digest")
 
         webots = ManagedWebotsProcess(
-            command=webots_command(
+            command=goal_webots_command(
                 self.config.webots,
                 self.config.world,
-                mode="fast",
             ),
             environment={
                 "MAZE_SIM_HOST": "127.0.0.1",
@@ -840,6 +839,12 @@ def load_acceptance_config(path: Path) -> dict[str, Any]:
     if int(result["trials"]) != 2:
         raise ValueError("P5 requires exactly two fixed-input trials")
     return result
+
+
+def goal_webots_command(webots: Path, world: Path) -> list[str]:
+    """Keep Webots time aligned with the Dashboard heartbeat clock."""
+
+    return webots_command(webots, world, mode="realtime")
 
 
 def load_map_asset(path: Path):

@@ -66,6 +66,16 @@ def test_dashboard_v2_has_complete_mission_control_dom_contract(tmp_path):
         "taskStartButton",
         "taskPauseButton",
         "stopButton",
+        "automaticGoalX",
+        "automaticGoalY",
+        "mapGoalCandidates",
+        "mapGoalDigest",
+        "mapGoalPathLength",
+        "mapGoalStatus",
+        "debugGoalX",
+        "debugGoalY",
+        "debugCoordinateButton",
+        "manualGoalNotice",
         "cellPosition",
         "continuousPose",
         "headingValue",
@@ -112,6 +122,21 @@ def test_dashboard_v2_has_complete_mission_control_dom_contract(tmp_path):
     assert required_ids <= parser.ids
     assert {"username", "password"} <= parser.labels_for
     assert {"globalNotice", "taskState"} <= parser.aria_live_ids
+    assert {"goalX", "goalY"} & parser.ids == set()
+    assert parser.elements["automaticGoalX"][0] == "output"
+    assert parser.elements["automaticGoalY"][0] == "output"
+    assert "disabled" in parser.elements["debugCoordinateButton"][1]
+
+
+def test_automatic_goal_panel_is_readonly_and_debug_goal_is_isolated(
+    tmp_path,
+):
+    html = dashboard_html(tmp_path)
+
+    assert "地图终点（自动）" in html
+    assert "不会改变自动终点，也不会触发自动完成" in html
+    assert "坐标单步调试尚未接入" in html
+    assert 'id="estopButton"' in html
 
 
 def test_dashboard_embeds_authenticated_same_origin_simulation_viewer(tmp_path):
@@ -223,6 +248,8 @@ def test_dashboard_reset_rebuilds_changed_task_and_blocks_failed_preflight():
         encoding="utf-8"
     )
     render_source = (STATIC_DIR / "render.js").read_text(encoding="utf-8")
+    state_source = (STATIC_DIR / "state.js").read_text(encoding="utf-8")
+    api_source = (STATIC_DIR / "api.js").read_text(encoding="utf-8")
 
     assert (
         "function taskDefinitionChanged(task, definition)"
@@ -234,7 +261,20 @@ def test_dashboard_reset_rebuilds_changed_task_and_blocks_failed_preflight():
         "physical_profile_id",
     ):
         assert f"task.{field} !== definition.{field}" in controls_source
-    assert "task.goal?.cell" in controls_source
+    assert 'run_kind: "auto_to_map_goal"' in controls_source
+    assert "task.goal?.cell" not in controls_source
+    assert '$("goalX")' not in controls_source
+    assert '$("goalY")' not in controls_source
+    assert "getMapVersion" in controls_source
+    assert "setMapVersionLoading" in controls_source
+    assert "setMapVersionDetail" in controls_source
+    assert "setMapVersionError" in controls_source
+    assert "assertAutomaticMapReady" in controls_source
+    assert "export function getMapVersion" in api_source
+    assert "mapVersionStatus" in state_source
+    assert "selectedMapVersionId" in state_source
+    assert "mapGoal" in state_source
+    assert "mapGoalReady" in render_source
     assert "preflight?.preflight?.ok !== true" in controls_source
     assert "preflight?.preflight?.message" in controls_source
     assert "blockedPreflight" in render_source

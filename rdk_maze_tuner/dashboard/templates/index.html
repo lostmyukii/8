@@ -248,12 +248,29 @@
                   <option value="normal-v1">normal-v1</option>
                 </select>
               </label>
-              <fieldset>
-                <legend>目标格</legend>
-                <label for="goalX">X</label>
-                <input id="goalX" type="number" value="0">
-                <label for="goalY">Y</label>
-                <input id="goalY" type="number" value="3">
+              <fieldset class="automatic-goal">
+                <legend>地图终点（自动）</legend>
+                <div class="automatic-goal__coordinates">
+                  <span>X <output id="automaticGoalX">--</output></span>
+                  <span>Y <output id="automaticGoalY">--</output></span>
+                </div>
+                <dl class="automatic-goal__evidence">
+                  <div>
+                    <dt>候选终点</dt>
+                    <dd id="mapGoalCandidates">--</dd>
+                  </div>
+                  <div>
+                    <dt>地图摘要</dt>
+                    <dd id="mapGoalDigest">--</dd>
+                  </div>
+                  <div>
+                    <dt>最短路径</dt>
+                    <dd id="mapGoalPathLength">--</dd>
+                  </div>
+                </dl>
+                <p id="mapGoalStatus" class="map-goal-status" aria-live="polite">
+                  请选择已保存地图版本
+                </p>
               </fieldset>
             </div>
 
@@ -283,6 +300,18 @@
 
             <details class="manual-control">
               <summary>单步调试</summary>
+              <p id="manualGoalNotice" class="manual-control__notice">
+                单步调试不会改变自动终点，也不会触发自动完成。
+              </p>
+              <div class="manual-control__debug-goal">
+                <label for="debugGoalX">调试 X</label>
+                <input id="debugGoalX" type="number" value="0">
+                <label for="debugGoalY">调试 Y</label>
+                <input id="debugGoalY" type="number" value="3">
+                <button id="debugCoordinateButton" type="button" disabled>
+                  坐标单步调试尚未接入
+                </button>
+              </div>
               <div class="manual-control__grid">
                 <button type="button" data-action="move_cell">前进一格</button>
                 <button type="button" data-action="turn_left">左转</button>

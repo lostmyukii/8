@@ -3,6 +3,7 @@ import {
   claimControl,
   createTask,
   emergencyStop,
+  getMapVersion,
   heartbeatControl,
   login,
   logout,
@@ -18,6 +19,9 @@ import {
   setActiveTask,
   setAuthSession,
   setLeaseToken,
+  setMapVersionDetail,
+  setMapVersionError,
+  setMapVersionLoading,
   setSelectedPhysicalProfile,
   setSelectedMode,
 } from "./state.js";
@@ -37,18 +41,12 @@ function coerceValue(raw, valueType) {
 }
 
 function taskDefinition() {
-  const appState = getAppState();
+  const appState = assertAutomaticMapReady();
   const definition = {
+    run_kind: "auto_to_map_goal",
     mode: appState.selectedMode,
-    map_version: $("mapVersionInput").value.trim(),
+    map_version: appState.selectedMapVersionId,
     param_version: $("paramVersionInput").value.trim(),
-    goal: {
-      type: "cell",
-      cell: [
-        Number.parseInt($("goalX").value, 10),
-        Number.parseInt($("goalY").value, 10),
-      ],
-    },
     max_steps: 500,
   };
   if (appState.selectedMode === "simulation") {
@@ -59,19 +57,48 @@ function taskDefinition() {
 }
 
 function taskDefinitionChanged(task, definition) {
-  const taskGoalCell = task.goal?.cell || [];
-  const definitionGoalCell = definition.goal?.cell || [];
   const physicalProfileChanged =
     definition.mode === "simulation"
     && task.physical_profile_id !== definition.physical_profile_id;
   return (
-    task.mode !== definition.mode
+    task.run_kind !== definition.run_kind
+    || task.mode !== definition.mode
     || task.map_version !== definition.map_version
     || task.param_version !== definition.param_version
     || physicalProfileChanged
-    || taskGoalCell[0] !== definitionGoalCell[0]
-    || taskGoalCell[1] !== definitionGoalCell[1]
   );
+}
+
+function assertAutomaticMapReady() {
+  const appState = getAppState();
+  const selected = $("mapVersionInput").value.trim();
+  const ready = (
+    selected
+    && appState.selectedMapVersionId === selected
+    && appState.mapVersionStatus === "ready"
+    && appState.mapVersionDetail?.version_id === selected
+    && appState.mapGoal?.source_map_version === selected
+  );
+  if (!ready) {
+    throw new Error(
+      appState.mapVersionError
+      || "请等待地图定义、摘要和自动终点加载完成",
+    );
+  }
+  return appState;
+}
+
+async function loadAutomaticMapVersion(versionId) {
+  const normalized = String(versionId || "").trim();
+  setMapVersionLoading(normalized);
+  if (!normalized) return;
+  try {
+    const version = await getMapVersion(normalized);
+    setMapVersionDetail(version);
+  } catch (error) {
+    setMapVersionError(normalized, error);
+    showNotice(errorMessage(error), { error: true, timeout: 5000 });
+  }
 }
 
 function errorMessage(error) {
@@ -155,6 +182,9 @@ export function bindControls({ refreshState, onAuthenticated, onLogout }) {
 
   $("physicalProfileInput").addEventListener("change", (event) => {
     setSelectedPhysicalProfile(event.target.value);
+  });
+  $("mapVersionInput").addEventListener("change", (event) => {
+    loadAutomaticMapVersion(event.target.value);
   });
 
   $("claimControlButton").addEventListener("click", async () => {
@@ -270,6 +300,7 @@ export function bindControls({ refreshState, onAuthenticated, onLogout }) {
 async function runTaskOperation(operation, success, refreshState) {
   await guardedOperation(
     async () => {
+      if (operation === "start") assertAutomaticMapReady();
       const task = getAppState().activeTask;
       if (!task) throw new Error("请先执行预检并重置");
       await taskOperation(task.task_id, operation);

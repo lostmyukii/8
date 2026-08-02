@@ -312,7 +312,44 @@ Commit：
 fix: lock automatic goals to the selected map
 ```
 
-实施记录在执行 Task 3 时写入本节。
+**Task 3 实施记录（2026-08-02）：**
+
+- RED：运行目标命令得到 `4 failed, 11 passed in 0.90s`；失败分别证明主面板
+  仍缺少只读地图终点证据，任务定义尚未发送 `run_kind`，选择器尚未加载地图详情，
+  且旧任务目标仍可能参与页面状态。
+- 最小实现：
+  - `state.js` 保存所选不可变地图详情、加载状态、错误和解析后的 `mapGoal`，并按
+    与后端一致的候选排序、BFS 最短距离和 `(y,x)` 决胜规则生成显示快照。
+  - `controls.js` 仅提交 `run_kind=auto_to_map_goal`、地图版本、参数版本、模式和物理
+    Profile；删除客户端 `goal`，地图终点未加载成功时拒绝创建任务。
+  - `maze_editor.js` 的任务地图选择器优先恢复已保存选择，并在选择或加载版本后触发
+    详情刷新，不再读取 `activeTask.goal`。
+  - 主面板改为只读“地图终点（自动）”，显示主终点、候选终点、地图摘要和最短路径；
+    手工坐标移入单步调试区，坐标执行按钮在 Task 10 前保持禁用。
+  - `render.js` 把地图加载状态纳入“预检并重置”和“开始自动探索”的禁用条件；
+    地图加载失败时清空证据并显示稳定错误。
+- 目标测试：同一命令得到 `15 passed in 0.86s`。
+- 本地真实浏览器验收（临时隔离数据库、`127.0.0.1:8765`）：
+  - v2 显示并锁定 `X 4 / Y 0`、候选 `(4,0)`、摘要 `77259af666c2`、路径 `8 格`。
+  - 实际 `POST /api/tasks` 请求体为
+    `{"run_kind":"auto_to_map_goal","mode":"simulation","map_version":"mapv-v2",`
+    `"param_version":"1","max_steps":500,"physical_profile_id":"normal-v1"}`，不含
+    `goal` 或 `(0,3)`。
+  - 切换 v1 后显示 `X 0 / Y 3`、摘要 `af935a5ce344`、路径 `1 格`；时间轴中旧
+    v2 任务仍记录 `(4,0)`，但不会覆盖当前 v1 的只读终点；再切回 v2 恢复 `(4,0)`。
+  - 强制地图详情接口返回 500 时，坐标显示 `-- / --`、错误显示
+    `forced map load failure`，预检和开始按钮均禁用；解除故障后可恢复。
+  - 急停始终可见。一次预检得到 `timeout waiting for ready`，原因是该隔离验收没有
+    启动 Webots 后端；这只验证页面和请求合同，不作为仿真通过证据。
+- 完整回归：
+  - `compileall` 通过；
+  - Python `347 passed in 5.52s`；
+  - `api.js/state.js/render.js/controls.js/replay.js/maze_editor.js` 全部通过
+    `node --check`；
+  - ESP32 PlatformIO 构建通过，RAM `22744/327680` bytes，Flash
+    `317041/1310720` bytes。
+- 边界：本 Task 未修改地图规划算法、Webots 控制器、ESP32 固件或正式站点；
+  尚未证明小车可沿合法路线到达终点。
 
 ---
 

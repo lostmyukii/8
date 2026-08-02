@@ -120,7 +120,7 @@ export function renderDashboard(appState) {
   renderLease(control, isController);
   renderMode(selectedMode, task, isController);
   renderConnections(appState, selectedMode, task, telemetry);
-  renderTask(task, isController);
+  renderTask(task, isController, appState);
   renderPhysicalProfileSelector(appState, task, isController);
   renderPose(maze, telemetry, params, task);
   renderEvidence(telemetry);
@@ -452,7 +452,7 @@ function renderConnections(appState, selectedMode, task, telemetry) {
   }`;
 }
 
-function renderTask(task, isController) {
+function renderTask(task, isController, appState) {
   const status = task?.status || "IDLE";
   setText("taskState", status);
   $("taskState").dataset.state = status;
@@ -463,6 +463,12 @@ function renderTask(task, isController) {
 
   const blockedPreflight =
     status === "PREFLIGHT" && task?.preflight?.ok === false;
+  const mapGoalReady = (
+    appState.mapVersionStatus === "ready"
+    && Boolean(appState.mapGoal)
+    && appState.mapVersionDetail?.version_id
+      === appState.selectedMapVersionId
+  );
   const resetAllowed = !task || blockedPreflight || [
     "IDLE",
     "COMPLETED",
@@ -470,9 +476,12 @@ function renderTask(task, isController) {
     "ERROR",
     "ESTOP",
   ].includes(status);
-  $("taskResetButton").disabled = !isController || !resetAllowed;
+  $("taskResetButton").disabled =
+    !isController || !resetAllowed || !mapGoalReady;
   $("taskStartButton").disabled =
-    !isController || !["READY", "PAUSED"].includes(status);
+    !isController
+    || !mapGoalReady
+    || !["READY", "PAUSED"].includes(status);
   $("taskPauseButton").disabled = !isController || status !== "RUNNING";
   $("stopButton").disabled =
     !isController ||
@@ -493,6 +502,42 @@ function renderTask(task, isController) {
       currentIndex >= 0 && index <= currentIndex,
     );
   });
+  renderAutomaticGoal(appState);
+}
+
+function renderAutomaticGoal(appState) {
+  const goal = appState.mapGoal;
+  const status = appState.mapVersionStatus;
+  const cell = goal?.cell || [];
+  const candidates = goal?.candidate_cells || [];
+  setText("automaticGoalX", cell[0], "--");
+  setText("automaticGoalY", cell[1], "--");
+  setText(
+    "mapGoalCandidates",
+    candidates.length
+      ? candidates.map((item) => `(${item[0]},${item[1]})`).join(" / ")
+      : "--",
+  );
+  setText(
+    "mapGoalDigest",
+    goal?.source_map_digest
+      ? String(goal.source_map_digest).slice(0, 12)
+      : "--",
+  );
+  setText(
+    "mapGoalPathLength",
+    Number.isInteger(goal?.path_length_cells)
+      ? `${goal.path_length_cells} 格`
+      : "--",
+  );
+  const statusText = {
+    idle: "请选择已保存地图版本",
+    loading: "正在校验地图定义、摘要与终点…",
+    ready: `已锁定地图终点 (${cell[0]},${cell[1]})`,
+    error: appState.mapVersionError || "地图版本或终点加载失败",
+  }[status] || "请选择已保存地图版本";
+  setText("mapGoalStatus", statusText);
+  $("mapGoalStatus")?.classList.toggle("is-error", status === "error");
 }
 
 function renderPose(maze, telemetry, params, task) {

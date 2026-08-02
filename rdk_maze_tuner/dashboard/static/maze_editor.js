@@ -421,11 +421,18 @@ async function refreshMapOptions(preferredVersion = "") {
   });
   $("mazeVersionList").replaceChildren(...editorOptions);
   $("mapVersionInput").replaceChildren(...taskOptions);
-  const selected = preferredVersion || draft.currentVersionId;
+  const appState = getAppState();
+  const selected = (
+    preferredVersion
+    || appState.selectedMapVersionId
+    || appState.activeTask?.map_version
+    || draft.currentVersionId
+  );
   if (selected) {
     $("mazeVersionList").value = selected;
     $("mapVersionInput").value = selected;
   }
+  $("mapVersionInput").dispatchEvent(new Event("change"));
   draft.mapsLoaded = true;
 }
 
@@ -455,6 +462,7 @@ async function loadSelectedVersion() {
     $("mazeDraftState").textContent = `已载入 v${version.version_number}`;
     $("mazeDigest").textContent = `digest ${version.digest}`;
     $("mapVersionInput").value = version.version_id;
+    $("mapVersionInput").dispatchEvent(new Event("change"));
     editorMessage("已载入不可变版本；继续编辑会保存为新版本。");
   } catch (error) {
     editorMessage(error.message || "地图版本加载失败", true);

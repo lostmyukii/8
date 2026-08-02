@@ -203,3 +203,18 @@ def test_maze_editor_dom_and_modules_cover_drawing_and_version_workflow(tmp_path
     assert "export function listMapVersions" in api_source
     entrypoint = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
     assert 'from "./maze_editor.js"' in entrypoint
+
+
+def test_task_map_selector_loads_version_detail_instead_of_task_goal():
+    controls_source = (STATIC_DIR / "controls.js").read_text(
+        encoding="utf-8"
+    )
+    editor_source = (STATIC_DIR / "maze_editor.js").read_text(
+        encoding="utf-8"
+    )
+
+    assert "getMapVersion" in controls_source
+    assert '"mapVersionInput"' in controls_source
+    assert "setMapVersionDetail" in controls_source
+    assert "dispatchEvent(new Event(\"change\"))" in editor_source
+    assert "activeTask?.goal" not in editor_source

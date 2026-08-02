@@ -104,6 +104,34 @@ class DashboardState:
             self.maze = maze
             self._reset_pose_models_locked()
 
+    def commit_debug_pose(self) -> dict[str, Any]:
+        """Align dashboard telemetry to one evidence-accepted debug action."""
+
+        with self._lock:
+            self.pose_estimate = self.pose_fusion.anchor_grid(
+                self.maze.position,
+                self.maze.heading.value,
+                source="verified_debug_action_done",
+            )
+            pose = self.pose_estimate
+            self.telemetry.update(
+                {
+                    "x_mm": pose.x_mm,
+                    "y_mm": pose.y_mm,
+                    "x_cm": round(pose.x_mm / 10.0, 3),
+                    "y_cm": round(pose.y_mm / 10.0, 3),
+                    "yaw_deg": pose.yaw_deg,
+                    "speed_mm_s": 0.0,
+                    "speed_cm_s": 0.0,
+                    "angular_velocity_dps": 0.0,
+                    "pose_confidence": pose.confidence,
+                    "pose_covariance": list(pose.covariance),
+                    "pose_correction_reason": pose.correction_source,
+                    "pose_quality_flags": list(pose.quality_flags),
+                }
+            )
+            return pose.to_dict()
+
     @property
     def connected(self) -> bool:
         if self.client is None:

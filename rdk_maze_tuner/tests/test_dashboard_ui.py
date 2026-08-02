@@ -135,7 +135,7 @@ def test_automatic_goal_panel_is_readonly_and_debug_goal_is_isolated(
 
     assert "地图终点（自动）" in html
     assert "不会改变自动终点，也不会触发自动完成" in html
-    assert "坐标单步调试尚未接入" in html
+    assert "预览下一动作" in html
     assert 'id="estopButton"' in html
 
 
@@ -262,6 +262,31 @@ def test_dashboard_controls_cover_auth_lease_tasks_and_shared_estop():
     assert "/api/command/estop" in api_source
     assert "control.role === \"controller\"" in render_source
     assert "disabled" in render_source
+
+
+def test_coordinate_debug_requires_preview_then_explicit_single_step():
+    api_source = (STATIC_DIR / "api.js").read_text(encoding="utf-8")
+    controls_source = (STATIC_DIR / "controls.js").read_text(
+        encoding="utf-8"
+    )
+    render_source = (STATIC_DIR / "render.js").read_text(encoding="utf-8")
+
+    assert '"/api/debug/step"' in api_source
+    assert "map_version: mapVersion" in api_source
+    assert "target_cell: targetCell" in api_source
+    assert "execute," in api_source
+    assert "debugPreview?.signature === definition.signature" in controls_source
+    assert "预览下一动作" in controls_source
+    assert "执行这一步" in controls_source
+    assert "debugGoalX" in controls_source
+    assert "debugGoalY" in controls_source
+    assert "debugButton.disabled = manualBlocked || !mapGoalReady" in (
+        render_source
+    )
+    assert "goal:" not in controls_source.split(
+        "function taskDefinition()",
+        1,
+    )[1].split("function taskDefinitionChanged", 1)[0]
 
 
 def test_dashboard_reset_rebuilds_changed_task_and_blocks_failed_preflight():

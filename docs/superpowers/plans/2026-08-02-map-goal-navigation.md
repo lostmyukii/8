@@ -1053,7 +1053,31 @@ Commit：
 feat: isolate manual targets in single-step debug
 ```
 
-实施记录在执行 Task 10 时写入本节。
+实施记录（2026-08-02）：
+
+- RED 以 5 failed / 11 passed 证明 `/api/debug/step` 尚不存在；测试同时
+  暴露无权限门禁、无预览合同、无单动作执行和无自动任务隔离。
+- 新增租约保护的单步调试路由。请求从选定不可变地图和当前可靠格重新规划，
+  拒绝非整格、越界、不可达和自动任务占有控制权；预览只写
+  `debug.preview`，不发送动作。
+- 明确执行时只运行路线中的第一个动作，使用独立 `debug-*` action_id，
+  等待匹配 `done/error`，复用 `TaskPoseTracker` 内的
+  `MotionEvidenceGate`；本路径关闭自动修正，即使证据为 recoverable 也只发
+  一个动作且不推进格。接受后同步 Dashboard 可靠格和连续位姿。
+- 调试事件全部使用 `debug.*`，不创建 task/run，不写
+  `step.goal_verified`、`task.completed`、score 或自动任务事件。观察者被
+  拒绝，登录用户的共享急停保持可用。
+- 前端采用两次确认：第一次“预览下一动作”，目标和地图未变化时第二次才
+  “执行这一步”；任何调试坐标或地图变化都会取消确认。自动任务定义仍只读取
+  地图版本，不读取调试坐标。
+- Playwright 在独立本地端口完成真实浏览器验收：自动终点保持只读
+  `(0,0)`；调试 `(0,1)` 产生 `debug.preview` 并显示
+  “执行这一步：turn_back”；修改调试坐标后按钮恢复“预览下一动作”，自动
+  终点未改变。控制台仅有登录前预期 401 和未启动 Webots 流的连接错误。
+- 目标测试 18 passed；固定完整回归 426 passed；PlatformIO 构建成功
+  （RAM 22,800 / 327,680，Flash 319,257 / 1,310,720）；五个固定
+  JavaScript 文件 `node --check` 与 `git diff --check` 均通过。浏览器临时
+  数据和 Playwright 产物已移入废纸篓，可恢复，未进入仓库。
 
 ---
 

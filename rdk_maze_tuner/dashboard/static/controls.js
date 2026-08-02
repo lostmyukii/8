@@ -2,6 +2,7 @@ import {
   ApiError,
   claimControl,
   createTask,
+  debugStep,
   emergencyStop,
   getMapVersion,
   heartbeatControl,
@@ -30,6 +31,7 @@ import { showNotice } from "./render.js";
 const $ = (id) => document.getElementById(id);
 let operationBusy = false;
 let leaseHeartbeatTimer = null;
+let debugPreview = null;
 
 function coerceValue(raw, valueType) {
   if (valueType === "number") {
@@ -67,6 +69,34 @@ function taskDefinitionChanged(task, definition) {
     || task.param_version !== definition.param_version
     || physicalProfileChanged
   );
+}
+
+function debugStepDefinition() {
+  const appState = assertAutomaticMapReady();
+  const x = Number($("debugGoalX").value);
+  const y = Number($("debugGoalY").value);
+  if (!Number.isInteger(x) || !Number.isInteger(y)) {
+    throw new Error("调试坐标必须是整数格坐标");
+  }
+  return {
+    mapVersion: appState.selectedMapVersionId,
+    targetCell: [x, y],
+    signature: `${appState.selectedMapVersionId}:${x}:${y}`,
+  };
+}
+
+function resetDebugPreview() {
+  debugPreview = null;
+  const button = $("debugCoordinateButton");
+  if (button) {
+    button.dataset.confirmed = "false";
+    button.textContent = "预览下一动作";
+  }
+  const notice = $("manualGoalNotice");
+  if (notice) {
+    notice.textContent =
+      "单步调试不会改变自动终点，也不会触发自动完成。";
+  }
 }
 
 function assertAutomaticMapReady() {
@@ -184,8 +214,11 @@ export function bindControls({ refreshState, onAuthenticated, onLogout }) {
     setSelectedPhysicalProfile(event.target.value);
   });
   $("mapVersionInput").addEventListener("change", (event) => {
+    resetDebugPreview();
     loadAutomaticMapVersion(event.target.value);
   });
+  $("debugGoalX").addEventListener("input", resetDebugPreview);
+  $("debugGoalY").addEventListener("input", resetDebugPreview);
 
   $("claimControlButton").addEventListener("click", async () => {
     if (!getAppState().csrfToken) {
@@ -268,6 +301,34 @@ export function bindControls({ refreshState, onAuthenticated, onLogout }) {
         await refreshState();
       }).catch(() => {});
     });
+  });
+
+  $("debugCoordinateButton").addEventListener("click", async () => {
+    await guardedOperation(async () => {
+      const definition = debugStepDefinition();
+      const execute = debugPreview?.signature === definition.signature;
+      const response = await debugStep(
+        definition.mapVersion,
+        definition.targetCell,
+        execute,
+      );
+      if (execute) {
+        resetDebugPreview();
+        await refreshState();
+        const outcome = response?.result?.outcome || "unknown";
+        showNotice(`单步调试已执行：${outcome}`);
+        return;
+      }
+      debugPreview = {
+        signature: definition.signature,
+        action: response.next_action,
+      };
+      const action = response.next_action?.name || "无需动作";
+      $("debugCoordinateButton").dataset.confirmed = "true";
+      $("debugCoordinateButton").textContent = `执行这一步：${action}`;
+      $("manualGoalNotice").textContent =
+        `已预览 ${action}；目标未变时再次点击才会执行。`;
+    }).catch(() => {});
   });
 
   $("autoTuneToggle").addEventListener("change", async (event) => {

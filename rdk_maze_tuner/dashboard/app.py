@@ -37,6 +37,7 @@ from rdk_maze_tuner.dashboard.routes.control import (
     CONTROL_LEASE_HEADER_NAME,
     create_control_router,
 )
+from rdk_maze_tuner.dashboard.routes.debug import create_debug_router
 from rdk_maze_tuner.dashboard.routes.maps import create_maps_router
 from rdk_maze_tuner.dashboard.routes.physical_profiles import (
     create_physical_profiles_router,
@@ -333,6 +334,15 @@ def create_app(
     )
     app.include_router(
         create_maps_router(auth_context, resolved_leases, resolved_maps)
+    )
+    app.include_router(
+        create_debug_router(
+            auth_context,
+            resolved_leases,
+            resolved_tasks,
+            resolved_maps,
+            dashboard_state,
+        )
     )
     app.include_router(
         create_physical_profiles_router(

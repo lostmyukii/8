@@ -493,6 +493,10 @@ function renderTask(task, isController, appState) {
   document.querySelectorAll("[data-action]").forEach((button) => {
     button.disabled = manualBlocked;
   });
+  const debugButton = $("debugCoordinateButton");
+  if (debugButton) {
+    debugButton.disabled = manualBlocked || !mapGoalReady;
+  }
 
   const currentIndex = TASK_ORDER.indexOf(status);
   document.querySelectorAll("[data-task-step]").forEach((step, index) => {

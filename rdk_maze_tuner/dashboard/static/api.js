@@ -121,6 +121,18 @@ export function manualAction(name) {
   });
 }
 
+export function debugStep(mapVersion, targetCell, execute = false) {
+  return request("/api/debug/step", {
+    method: "POST",
+    body: {
+      map_version: mapVersion,
+      target_cell: targetCell,
+      execute,
+    },
+    control: true,
+  });
+}
+
 export function updateParam(path, value) {
   return request("/api/params", {
     method: "POST",

@@ -91,6 +91,7 @@ class MazeRunner:
         motion_targets: MotionTargetResolver | None = None,
         pose_tracker: TaskPoseTracker | None = None,
         goal_verifier: GoalVerifier | None = None,
+        enable_recovery: bool = True,
     ) -> None:
         self.client = client
         self.params = params
@@ -103,6 +104,7 @@ class MazeRunner:
         self.motion_targets = motion_targets
         self.pose_tracker = pose_tracker
         self.goal_verifier = goal_verifier
+        self.enable_recovery = bool(enable_recovery)
         self._action_index = 0
 
     def run_step(
@@ -369,6 +371,33 @@ class MazeRunner:
                 emit=emit,
             )
             if tracked.decision.status != "accepted":
+                if not self.enable_recovery:
+                    error_code = str(
+                        tracked.decision.code
+                        or MOTION_RECOVERY_FAILED
+                    )
+                    emit(
+                        "step.unsafe",
+                        {
+                            "action_id": action_id,
+                            "error_code": error_code,
+                            "recovery_disabled": True,
+                        },
+                        legacy_log=False,
+                    )
+                    return MazeStepResult(
+                        action=action,
+                        action_id=action_id,
+                        telemetry=telemetry,
+                        done=done,
+                        map_text=self.maze.render_ascii(),
+                        motion_target=motion_target,
+                        outcome="unsafe",
+                        events=tuple(events),
+                        evidence=evidence_payload,
+                        reliable_pose=tracked.pose.to_dict(),
+                        error_code=error_code,
+                    )
                 recovery_result = self._run_motion_recovery(
                     action_id=action_id,
                     action=action,

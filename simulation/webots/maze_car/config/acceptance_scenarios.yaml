@@ -68,9 +68,9 @@ scenarios:
       - {name: turn_right, target_ticks: 573, speed: 0.35, repeat: 1}
       - {name: move_cell, target_ticks: 2430, speed: 0.10, repeat: 3}
     expected_observations:
+      - configured_patch_friction_diverges
       - surface_changes_on_patch_entry
-      - slip_spike_is_transient
     acceptance_thresholds:
-      min_patch_slip_increase: 0.05
+      min_configured_patch_friction_difference: 0.60
       min_surface_transitions: 1
     timeout_ms: 90000

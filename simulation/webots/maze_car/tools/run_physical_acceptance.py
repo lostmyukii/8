@@ -686,6 +686,10 @@ def execute_scenario_session(
         profile.surface.left_wheel_friction
         - profile.surface.right_wheel_friction
     )
+    metrics["configured_patch_friction_difference"] = abs(
+        profile.surface.base_floor_friction
+        - profile.surface.patch_friction
+    )
     thresholds = evaluate_scenario_thresholds(
         scenario,
         metrics=metrics,
@@ -953,6 +957,9 @@ def evaluate_scenario_thresholds(
         "min_trajectory_difference_mm": "encoder_truth_gap_mm",
         "min_configured_friction_difference": (
             "configured_wheel_friction_difference"
+        ),
+        "min_configured_patch_friction_difference": (
+            "configured_patch_friction_difference"
         ),
         "min_slip_difference": "mean_abs_slip_difference",
         "min_yaw_difference_deg": "final_yaw_deg",

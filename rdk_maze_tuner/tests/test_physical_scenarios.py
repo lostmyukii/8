@@ -87,6 +87,27 @@ def test_asymmetric_acceptance_uses_frozen_friction_delta_not_sample_timing():
     )
 
 
+def test_patch_acceptance_uses_frozen_surface_delta_and_observed_entry():
+    repository = PhysicalScenarioRepository()
+    scenario = repository.get("local-patch-p4-v1")
+    profile = PhysicalProfileRepository().get("local-patch-v1")
+    thresholds = dict(scenario.acceptance_thresholds)
+
+    assert "min_patch_slip_increase" not in thresholds
+    assert thresholds["min_configured_patch_friction_difference"] == (
+        pytest.approx(0.60)
+    )
+    assert abs(
+        profile.surface.base_floor_friction
+        - profile.surface.patch_friction
+    ) >= thresholds["min_configured_patch_friction_difference"]
+    assert thresholds["min_surface_transitions"] >= 1
+    assert scenario.expected_observations == (
+        "configured_patch_friction_diverges",
+        "surface_changes_on_patch_entry",
+    )
+
+
 @pytest.mark.parametrize(
     "mutator",
     [

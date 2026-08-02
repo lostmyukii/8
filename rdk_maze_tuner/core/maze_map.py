@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Dict, Optional, Tuple
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Dict, Mapping, Optional, Tuple
 
 if TYPE_CHECKING:
     from .maze_definition import MapDefinition
@@ -44,10 +45,27 @@ OPPOSITE = {
 @dataclass
 class Cell:
     coord: Coord
-    walls: Dict[str, Optional[bool]] = field(
+    planned_walls: Dict[str, Optional[bool]] = field(
+        default_factory=lambda: {"N": None, "E": None, "S": None, "W": None}
+    )
+    observed_walls: Dict[str, Optional[bool]] = field(
         default_factory=lambda: {"N": None, "E": None, "S": None, "W": None}
     )
     visited: bool = False
+
+    @property
+    def walls(self) -> Mapping[str, Optional[bool]]:
+        """Return a read-only compatibility snapshot with planned evidence first."""
+
+        merged = {
+            direction: (
+                self.planned_walls[direction]
+                if self.planned_walls[direction] is not None
+                else self.observed_walls[direction]
+            )
+            for direction in ("N", "E", "S", "W")
+        }
+        return MappingProxyType(merged)
 
 
 @dataclass(frozen=True)
@@ -98,7 +116,7 @@ class MazeMap:
         for coord in definition.iter_cells():
             blocked = definition.blocked_directions(coord)
             cell = maze.cell(coord)
-            cell.walls = {
+            cell.planned_walls = {
                 direction.value: direction.value in blocked
                 for direction in Direction
             }
@@ -118,12 +136,37 @@ class MazeMap:
         }
         for local_direction, distance in readings.items():
             direction = self.local_to_global(local_direction)
-            self.set_wall(self.position, direction, distance < self.wall_threshold_mm)
+            self.set_observed_wall(
+                self.position,
+                direction,
+                distance < self.wall_threshold_mm,
+            )
 
     def set_wall(self, coord: Coord, direction: Direction, blocked: bool) -> None:
-        self.cell(coord).walls[direction.value] = blocked
+        """Compatibility alias for legacy observation-only callers."""
+
+        self.set_observed_wall(coord, direction, blocked)
+
+    def set_observed_wall(
+        self,
+        coord: Coord,
+        direction: Direction,
+        blocked: bool,
+    ) -> None:
+        self.cell(coord).observed_walls[direction.value] = blocked
         neighbor = self.neighbor(coord, direction)
-        self.cell(neighbor).walls[OPPOSITE[direction].value] = blocked
+        self.cell(neighbor).observed_walls[OPPOSITE[direction].value] = blocked
+
+    def wall_for_planning(
+        self,
+        coord: Coord,
+        direction: Direction,
+    ) -> Optional[bool]:
+        cell = self.cell(coord)
+        planned = cell.planned_walls[direction.value]
+        if planned is not None:
+            return planned
+        return cell.observed_walls[direction.value]
 
     def neighbor(self, coord: Coord, direction: Direction) -> Coord:
         dx, dy = self._deltas[direction]
@@ -241,6 +284,8 @@ class MazeMap:
                     "coord": [coord[0], coord[1]],
                     "visited": cell.visited,
                     "walls": dict(cell.walls),
+                    "planned_walls": dict(cell.planned_walls),
+                    "observed_walls": dict(cell.observed_walls),
                 }
                 for coord, cell in sorted(self.cells.items())
             ],

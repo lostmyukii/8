@@ -407,7 +407,35 @@ Commit：
 refactor: separate planned and observed maze walls
 ```
 
-实施记录在执行 Task 4 时写入本节。
+**Task 4 实施记录（2026-08-02）：**
+
+- RED：
+  - 三文件目标命令在收集阶段得到 `1 error`，明确缺少
+    `rdk_maze_tuner.core.map_sensor_conflict`。
+  - 先排除该缺失模块运行地图与规划测试，得到 `4 failed, 1 passed in 0.03s`；
+    失败均来自 `Cell` 尚无 `planned_walls/observed_walls`，并证明旧实现只有一个
+    可被 `observe` 改写的墙体层。
+- 最小实现：
+  - `Cell` 分开保存权威 `planned_walls` 与实时 `observed_walls`；兼容属性
+    `walls` 返回计划值优先的只读快照。
+  - `MazeMap.from_definition` 只初始化计划层，`observe/set_wall` 只写观测层；
+    `wall_for_planning` 在存在计划值时拒绝观测覆盖，无计划地图则回退到观测值。
+  - 地图快照同时导出兼容墙体、计划墙体和观测墙体，便于后续诊断与回放。
+  - 旧 DFS 改用 `wall_for_planning`，所以不可穿越计划墙，同时保留无计划地图的
+    观测式探索行为。
+  - 新增纯状态 `MapSensorConflictDetector`：只在计划开放方向连续 3 个有效墙样本
+    后锁存 `MAP_SENSOR_CONFLICT`；无效、超量程、开放读数、不同方向或计划墙读数
+    会打断未完成证据，但已锁存冲突只能通过显式 `reset(run_id=...)` 清除。
+- 目标测试：`8 passed in 0.02s`。
+- 完整回归：
+  - `compileall` 通过；
+  - Python `355 passed in 5.66s`；
+  - `api.js/state.js/render.js/controls.js/replay.js` 全部通过 `node --check`；
+  - ESP32 PlatformIO 构建通过，RAM `22744/327680` bytes，Flash
+    `317041/1310720` bytes。
+- 边界：本 Task 只建立地图证据分层和纯冲突检测组件；冲突检测器尚未接入任务
+  运行器，因此还不会自动发送 `stop` 或把任务置为 `ERROR`。未修改 Webots、
+  ESP32 固件或正式站点，也未执行仿真和真车验收。
 
 ### Task 5：实现确定性地图终点规划器
 

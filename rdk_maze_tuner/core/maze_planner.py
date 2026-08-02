@@ -17,9 +17,8 @@ class MazePlanner:
         if self.pending:
             return self.pending.pop(0)
 
-        cell = maze.cell(maze.position)
         for direction in self.priority:
-            if cell.walls[direction.value] is not False:
+            if maze.wall_for_planning(maze.position, direction) is not False:
                 continue
             target = maze.neighbor(maze.position, direction)
             if target in maze.visited:
@@ -65,4 +64,3 @@ def _heading_index(direction: Direction) -> int:
         Direction.SOUTH: 2,
         Direction.WEST: 3,
     }[direction]
-

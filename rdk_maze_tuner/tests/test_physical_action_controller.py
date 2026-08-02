@@ -178,6 +178,34 @@ def test_straight_speed_is_limited_to_the_validated_traction_envelope():
     assert output.telemetry["traction_limited"] is True
 
 
+def test_asymmetric_fault_profile_preserves_explicit_stress_speed():
+    profile = PhysicalProfileRepository().get("asymmetric-v1")
+    control = PhysicalActionController(
+        profile=profile,
+        config=config(
+            straight_speed_fraction_limit=0.10,
+            base_speed_limit=0.25,
+        ),
+    )
+    control.start(
+        ActionRequest("stress", "move_cell", 200, 0.35),
+        sample=sample(ts_ms=0),
+        now_ms=0,
+    )
+
+    output = control.tick(sample=sample(ts_ms=8), now_ms=8)
+
+    assert output.target_velocity_left_rad_s == pytest.approx(7.0)
+    assert output.target_velocity_right_rad_s == pytest.approx(7.0)
+    assert output.telemetry["requested_speed_fraction"] == pytest.approx(
+        0.35
+    )
+    assert output.telemetry["applied_speed_fraction"] == pytest.approx(
+        0.35
+    )
+    assert output.telemetry["traction_limited"] is False
+
+
 def test_velocity_control_keeps_dead_zone_feedforward_at_setpoint():
     control = controller()
     control.start(

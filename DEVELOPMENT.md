@@ -263,6 +263,9 @@ low/patch 为 0.25。不能把第二个较低系数当作“滚动阻力”写�
 分别写入 `requested_speed_fraction`、`applied_speed_fraction`，发生限速时
 `traction_limited=true`。该限制位于 ESP32 式动作闭环而不是 RDK 高频控制，
 用于避免长距离连续动作累计横向漂移后贴墙；转向速度不受这一限制。
+`asymmetric-v1` 是 P4 专用故障注入 Profile：只有显式请求高于正常
+`base_speed_limit` 的压力动作才保留原始速度，以产生可重复的左右摩擦偏航
+证据；生产默认 `normal-v1` 不允许借此绕过牵引包线。
 
 动作完成：
 

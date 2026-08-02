@@ -964,8 +964,17 @@ class PhysicalActionController:
         if self._active is None:
             return (0.0, 0.0, False)
         requested = min(1.0, abs(self._active.speed))
+        asymmetric_stress_test = (
+            self.profile.surface.profile == "asymmetric"
+            and requested > self.config.base_speed_limit
+        )
         applied = (
-            min(requested, self.config.straight_speed_fraction_limit)
+            requested
+            if asymmetric_stress_test
+            else min(
+                requested,
+                self.config.straight_speed_fraction_limit,
+            )
             if self._active.name in _STRAIGHT_ACTIONS
             else requested
         )

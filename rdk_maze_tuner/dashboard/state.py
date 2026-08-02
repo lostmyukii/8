@@ -10,7 +10,7 @@ from pathlib import Path
 from threading import RLock
 from typing import Any, Callable, Deque, Mapping, Optional
 
-from rdk_maze_tuner.core.maze_map import Direction, MazeMap, PlannedAction
+from rdk_maze_tuner.core.maze_map import MazeMap, PlannedAction
 from rdk_maze_tuner.core.param_manager import ParamManager, ParamValidationError
 from rdk_maze_tuner.core.device_session import DeviceSession
 from rdk_maze_tuner.core.pose_fusion import PoseFusion
@@ -18,7 +18,6 @@ from rdk_maze_tuner.core.pose_types import (
     PoseFusionConfig,
     PoseObservation,
     TruthPose,
-    WallConstraint,
     evaluate_pose,
 )
 from rdk_maze_tuner.core.protocol import (
@@ -30,6 +29,10 @@ from rdk_maze_tuner.core.serial_client import SerialClientError
 from rdk_maze_tuner.core.slip_estimator import (
     SlipEstimator,
     SlipEstimatorConfig,
+)
+from rdk_maze_tuner.core.wall_evidence import (
+    WallEvidenceBuilder,
+    WallEvidenceSnapshot,
 )
 
 
@@ -87,7 +90,9 @@ class DashboardState:
         self._lock = RLock()
         self._manual_action_index = 0
         self._task_orchestrator: Any = None
-        self._front_wall_reference: tuple[str, float] | None = None
+        self._previous_wall_evidence: (
+            WallEvidenceSnapshot | None
+        ) = None
         self._reset_pose_models_locked()
 
     def attach_task_orchestrator(self, orchestrator: Any) -> None:
@@ -580,7 +585,12 @@ class DashboardState:
         )
         self.pose_estimate = self.pose_fusion.estimate()
         self.slip_estimate = self.slip_estimator.estimate()
-        self._front_wall_reference = None
+        self.wall_evidence = WallEvidenceBuilder(
+            maze=self.maze,
+            fallback_cell_width_mm=config.cell_width_mm,
+            fallback_cell_height_mm=config.cell_height_mm,
+        )
+        self._previous_wall_evidence = None
 
     def _update_fused_telemetry_locked(
         self,
@@ -607,17 +617,25 @@ class DashboardState:
                 maze_heading,
             )
 
-        constraints, front_reference = (
-            self._wall_constraints_locked(evidence)
+        wall_evidence = self.wall_evidence.build(
+            evidence,
+            cell=self.maze.position,
+            heading=self.maze.heading,
         )
         observation = PoseObservation.from_mapping(evidence)
         self.pose_estimate = self.pose_fusion.update(
             observation,
-            wall_constraints=constraints,
+            wall_constraints=wall_evidence.constraints,
         )
-        external_distance = self._external_wall_motion(
-            front_reference
+        external_distance = (
+            None
+            if self._previous_wall_evidence is None
+            else self.wall_evidence.longitudinal_displacement(
+                self._previous_wall_evidence,
+                wall_evidence,
+            )
         )
+        self._previous_wall_evidence = wall_evidence
         self.slip_estimate = self.slip_estimator.update(
             timestamp_ms=observation.timestamp_ms,
             enc_left=observation.enc_left,
@@ -676,105 +694,6 @@ class DashboardState:
         except (ProtocolError, ValueError, KeyError):
             merged["truth_quality"] = "invalid"
         self.telemetry = merged
-
-    def _wall_constraints_locked(
-        self,
-        telemetry: Mapping[str, Any],
-    ) -> tuple[
-        tuple[WallConstraint, ...],
-        tuple[str, float] | None,
-    ]:
-        if not getattr(self.maze, "_screen_coordinates", False):
-            return (), None
-        width = float(
-            self.maze.cell_width_mm
-            or self.pose_fusion.config.cell_width_mm
-        )
-        height = float(
-            self.maze.cell_height_mm
-            or self.pose_fusion.config.cell_height_mm
-        )
-        x, y = self.maze.position
-        constraints = []
-        front_reference = None
-        for local, fusion_field, raw_field in (
-            ("front", "fusion_front_mm", "front_mm"),
-            ("left", "fusion_left_mm", "left_mm"),
-            ("right", "fusion_right_mm", "right_mm"),
-        ):
-            value = telemetry.get(fusion_field)
-            if value is None:
-                value = telemetry.get(raw_field)
-            try:
-                distance = float(value)
-            except (TypeError, ValueError):
-                continue
-            if not 0.0 <= distance <= 5000.0:
-                continue
-            direction = self.maze.local_to_global(local)
-            coordinate = self._nearest_wall_coordinate_locked(
-                direction,
-                start=(x, y),
-                width_mm=width,
-                height_mm=height,
-            )
-            if coordinate is None:
-                continue
-            constraint = WallConstraint(
-                direction=direction.value,
-                wall_coordinate_mm=coordinate,
-                distance_mm=distance,
-                variance_mm2=625.0,
-            )
-            constraints.append(constraint)
-            if local == "front":
-                front_reference = (
-                    f"{direction.value}:{coordinate}",
-                    distance,
-                )
-        return tuple(constraints), front_reference
-
-    def _nearest_wall_coordinate_locked(
-        self,
-        direction: Direction,
-        *,
-        start: tuple[int, int],
-        width_mm: float,
-        height_mm: float,
-    ) -> float | None:
-        rows = self.maze.rows
-        cols = self.maze.cols
-        if rows is None or cols is None:
-            return None
-        cell = start
-        for _ in range(rows * cols + 1):
-            x, y = cell
-            if not 0 <= x < cols or not 0 <= y < rows:
-                return None
-            wall = self.maze.cell(cell).walls[direction.value]
-            if wall is True:
-                return {
-                    "N": y * height_mm,
-                    "S": (y + 1) * height_mm,
-                    "W": x * width_mm,
-                    "E": (x + 1) * width_mm,
-                }[direction.value]
-            if wall is not False:
-                return None
-            cell = self.maze.neighbor(cell, direction)
-        return None
-
-    def _external_wall_motion(
-        self,
-        current: tuple[str, float] | None,
-    ) -> float | None:
-        previous = self._front_wall_reference
-        self._front_wall_reference = current
-        if current is None or previous is None:
-            return None
-        if current[0] != previous[0]:
-            return None
-        return previous[1] - current[1]
 
     def _motion_params_for(self, action_name: str) -> tuple[float, int]:
         if action_name == "move_cell":

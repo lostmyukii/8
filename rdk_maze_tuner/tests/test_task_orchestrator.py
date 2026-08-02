@@ -108,7 +108,7 @@ class FakeModeAdapter:
         self.calls.append(("close", {}))
 
 
-def step_result(outcome):
+def step_result(outcome, *, error_code=None):
     return MazeStepResult(
         action=PlannedAction("stop" if outcome != "continue" else "move_cell"),
         action_id=None,
@@ -116,6 +116,13 @@ def step_result(outcome):
         done=None,
         map_text="+---+",
         outcome=outcome,
+        error_code=error_code,
+        evidence=(
+            None
+            if error_code is None
+            else {"status": "unsafe", "code": error_code}
+        ),
+        reliable_pose={"grid_cell": [0, 0], "heading": "N"},
     )
 
 
@@ -614,6 +621,52 @@ def test_exhausted_planner_becomes_explicit_no_path_error(tmp_path):
         if event["type"] == "task.error"
     )
     assert error["payload"]["code"] == "NO_PATH"
+
+
+@pytest.mark.parametrize(
+    ("outcome", "result_code", "expected_code"),
+    (
+        (
+            "recovery_required",
+            "MOTION_RECOVERY_REQUIRED",
+            "MOTION_RECOVERY_REQUIRED",
+        ),
+        ("unsafe", "POSE_UNCERTAIN", "POSE_UNCERTAIN"),
+        ("unsafe", "MAP_SENSOR_CONFLICT", "MAP_SENSOR_CONFLICT"),
+    ),
+)
+def test_motion_evidence_failure_stops_before_task_error(
+    tmp_path,
+    outcome,
+    result_code,
+    expected_code,
+):
+    class EvidenceFailureRunner:
+        def run_step(self, *, control, goal, event_sink):
+            return step_result(outcome, error_code=result_code)
+
+    _, events, adapter, orchestrator = make_orchestrator(
+        tmp_path,
+        [EvidenceFailureRunner()],
+    )
+    ready = create_ready_task(orchestrator)
+
+    orchestrator.start(ready["task_id"])
+    failed = orchestrator.wait_for_state(
+        ready["task_id"],
+        {TaskStatus.ERROR},
+        timeout_s=1.0,
+    )
+
+    assert ("stop", {}) in adapter.calls
+    error = next(
+        event
+        for event in events.list_events(ready["run_id"])
+        if event["type"] == "task.error"
+    )
+    assert error["payload"]["code"] == expected_code
+    assert failed["last_step"]["error_code"] == result_code
+    assert failed["last_step"]["reliable_pose"]["heading"] == "N"
 
 
 def test_running_device_disconnect_becomes_lost_not_error(tmp_path):

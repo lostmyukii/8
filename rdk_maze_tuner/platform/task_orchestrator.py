@@ -841,6 +841,29 @@ class TaskOrchestrator:
                         message="planner exhausted before reaching goal",
                     )
                 return
+            if result.outcome in {
+                "recovery_required",
+                "unsafe",
+            }:
+                code = (
+                    result.error_code
+                    or (
+                        "MOTION_RECOVERY_REQUIRED"
+                        if result.outcome == "recovery_required"
+                        else "MOTION_EVIDENCE_UNSAFE"
+                    )
+                )
+                self._stop_then_finish_error(
+                    task_id,
+                    run_id,
+                    code=code,
+                    message=(
+                        "motion requires bounded recovery"
+                        if result.outcome == "recovery_required"
+                        else "motion evidence is unsafe"
+                    ),
+                )
+                return
 
             with self._condition:
                 task = self._task_locked(task_id)
@@ -958,6 +981,30 @@ class TaskOrchestrator:
                 {"code": code, "message": message},
             )
             self._mark_run_ended_locked(task)
+
+    def _stop_then_finish_error(
+        self,
+        task_id: str,
+        run_id: str,
+        *,
+        code: str,
+        message: str,
+    ) -> None:
+        with self._condition:
+            task = self._task_locked(task_id)
+            if task.run_id != run_id:
+                return
+            adapter = self.adapters[task.mode]
+        try:
+            adapter.stop()
+        except Exception as exc:
+            message = f"{message}; stop failed: {exc}"
+        self._finish_error(
+            task_id,
+            run_id,
+            code=code,
+            message=message,
+        )
 
     def _complete_locked(
         self,
@@ -1418,6 +1465,9 @@ def _step_snapshot(result: MazeStepResult) -> dict[str, Any]:
         "outcome": result.outcome,
         "telemetry": _json_ready(result.telemetry),
         "done": _json_ready(result.done),
+        "evidence": _json_ready(result.evidence),
+        "reliable_pose": _json_ready(result.reliable_pose),
+        "error_code": result.error_code,
     }
 
 

@@ -20,6 +20,10 @@ from rdk_maze_tuner.core.goal_directed_planner import GoalDirectedPlanner
 from rdk_maze_tuner.core.maze_map import MazeMap
 from rdk_maze_tuner.core.maze_planner import MazePlanner
 from rdk_maze_tuner.core.maze_runner import MazeRunner
+from rdk_maze_tuner.core.motion_evidence import (
+    ArrivalVerificationConfig,
+)
+from rdk_maze_tuner.core.task_pose_tracker import TaskPoseTracker
 from rdk_maze_tuner.core.param_manager import ParamManager, ParamValidationError
 from rdk_maze_tuner.core.serial_client import SerialClient, SerialClientError, open_serial
 from rdk_maze_tuner.core.tcp_stream import open_tcp
@@ -241,12 +245,23 @@ def create_app(
                 map_version_id=map_version.version_id,
             )
             dashboard_state.set_maze(maze)
+            pose_tracker = TaskPoseTracker.from_params(
+                maze=maze,
+                params=dashboard_state.params,
+                arrival_config=(
+                    ArrivalVerificationConfig.from_mapping(
+                        task.arrival_verification_snapshot
+                    )
+                ),
+                run_id=task.run_id,
+            )
             return MazeRunner(
                 client=adapter.session,
                 params=dashboard_state.params,
                 maze=maze,
                 planner=_planner_for_task(task),
                 action_prefix=task.run_id or task.task_id,
+                pose_tracker=pose_tracker,
             )
 
         resolved_tasks = TaskOrchestrator(

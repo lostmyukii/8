@@ -280,6 +280,47 @@ def test_webots_wall_motion_provides_low_slip_evidence_while_moving():
     assert slip["is_physical_truth"] is False
 
 
+def test_no_imu_task_confidence_requires_success_stable_heading_and_two_axes():
+    fusion = PoseFusion(
+        config=config(),
+        initial_cell=(0, 0),
+        initial_heading="N",
+    )
+    estimate = fusion.update(
+        observation(ts_ms=0, enc_left=0, enc_right=0),
+        wall_constraints=(
+            WallConstraint(
+                direction="N",
+                wall_coordinate_mm=0,
+                distance_mm=150,
+            ),
+            WallConstraint(
+                direction="W",
+                wall_coordinate_mm=0,
+                distance_mm=150,
+            ),
+        ),
+    )
+
+    degraded = fusion.qualify_task_estimate(
+        estimate,
+        action_success=True,
+        stable_grid_heading=True,
+        independent_wall_constraints=1,
+    )
+    qualified = fusion.qualify_task_estimate(
+        estimate,
+        action_success=True,
+        stable_grid_heading=True,
+        independent_wall_constraints=2,
+    )
+
+    assert degraded.confidence < 0.80
+    assert "task_pose_degraded" in degraded.quality_flags
+    assert qualified.confidence >= 0.80
+    assert "no_imu_wall_qualified" in qualified.quality_flags
+
+
 def test_dashboard_state_exposes_pose_covariance_quality_and_truth_error():
     params = ParamManager(
         params_path=PARAMS_PATH,

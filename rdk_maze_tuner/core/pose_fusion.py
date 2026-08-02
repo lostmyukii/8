@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable
+from dataclasses import replace
 
 from .pose_types import (
     HEADING_YAW_DEG,
@@ -182,6 +183,39 @@ class PoseFusion:
             wall_residual_mm=self._wall_residual_mm,
             continuous_heading_valid=self._continuous_heading_valid,
             quality_flags=self._quality_flags,
+        )
+
+    def qualify_task_estimate(
+        self,
+        estimate: PoseEstimate,
+        *,
+        action_success: bool,
+        stable_grid_heading: bool,
+        independent_wall_constraints: int,
+    ) -> PoseEstimate:
+        """Apply the documented no-IMU completion confidence rule."""
+
+        if estimate.continuous_heading_valid:
+            return estimate
+        qualified = (
+            action_success
+            and stable_grid_heading
+            and independent_wall_constraints >= 2
+            and "wall_outlier" not in estimate.quality_flags
+        )
+        flags = set(estimate.quality_flags)
+        if qualified:
+            flags.add("no_imu_wall_qualified")
+            flags.discard("task_pose_degraded")
+            confidence = max(0.80, estimate.confidence)
+        else:
+            flags.add("task_pose_degraded")
+            flags.discard("no_imu_wall_qualified")
+            confidence = min(0.79, estimate.confidence)
+        return replace(
+            estimate,
+            confidence=round(confidence, 4),
+            quality_flags=tuple(sorted(flags)),
         )
 
     def _apply_imu(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Optional, Protocol
 
@@ -11,6 +12,16 @@ from .auto_tuner import AutoTuner
 from .motion_analyzer import MotionAnalyzer, MotionReport
 from .motion_targets import MotionTarget, MotionTargetResolver
 from .param_manager import ParamManager
+from .pose_types import TruthPose, evaluate_pose
+from .protocol import (
+    ProtocolError,
+    extract_fusion_telemetry,
+    extract_simulation_truth,
+)
+from .task_pose_tracker import (
+    TaskPoseTracker,
+    TaskPoseTrackerError,
+)
 
 
 class MazeClient(Protocol):
@@ -57,6 +68,9 @@ class MazeStepResult:
     motion_target: Optional[MotionTarget] = None
     outcome: str = "continue"
     events: tuple[dict[str, Any], ...] = ()
+    evidence: Optional[dict[str, Any]] = None
+    reliable_pose: Optional[dict[str, Any]] = None
+    error_code: Optional[str] = None
 
 
 class MazeRunner:
@@ -72,6 +86,7 @@ class MazeRunner:
         logger: Optional[JsonlLogger] = None,
         action_prefix: str = "maze",
         motion_targets: MotionTargetResolver | None = None,
+        pose_tracker: TaskPoseTracker | None = None,
     ) -> None:
         self.client = client
         self.params = params
@@ -82,6 +97,7 @@ class MazeRunner:
         self.logger = logger
         self.action_prefix = action_prefix
         self.motion_targets = motion_targets
+        self.pose_tracker = pose_tracker
         self._action_index = 0
 
     def run_step(
@@ -132,6 +148,38 @@ class MazeRunner:
 
         telemetry = self.client.wait_telemetry()
         emit("telemetry", telemetry)
+        if self.pose_tracker is not None:
+            conflict = self.pose_tracker.check_map_conflict(telemetry)
+            if conflict is not None:
+                conflict_payload = conflict.to_dict()
+                evidence = {
+                    "status": "unsafe",
+                    "code": conflict.code,
+                    "reasons": [
+                        "live wall evidence conflicts with immutable map"
+                    ],
+                }
+                emit("map_sensor_conflict", conflict_payload)
+                emit("motion_evidence", evidence)
+                emit(
+                    "step.unsafe",
+                    {"error_code": conflict.code},
+                    legacy_log=False,
+                )
+                return MazeStepResult(
+                    action=PlannedAction("stop"),
+                    action_id=None,
+                    telemetry=telemetry,
+                    done=None,
+                    map_text=self.maze.render_ascii(),
+                    outcome="unsafe",
+                    events=tuple(events),
+                    evidence=evidence,
+                    reliable_pose=(
+                        self.pose_tracker.estimate().to_dict()
+                    ),
+                    error_code=conflict.code,
+                )
         self.maze.observe(
             front_mm=int(telemetry["front_mm"]),
             left_mm=int(telemetry["left_mm"]),
@@ -214,14 +262,140 @@ class MazeRunner:
                 **motion_target.to_dict(),
             },
         )
-        done = self.client.execute_action(
-            action_id=action_id,
-            name=action.name,
-            speed=speed,
-            target_ticks=target_ticks,
+        if self.pose_tracker is not None:
+            baseline = self.pose_tracker.begin_action(
+                action_id=action_id,
+                action=action,
+                telemetry=telemetry,
+            )
+            emit("pose.baseline", baseline)
+        completion_subscription = (
+            self._subscribe_completion_telemetry()
+            if self.pose_tracker is not None
+            else None
         )
+        completion_telemetry = None
+        try:
+            done = self.client.execute_action(
+                action_id=action_id,
+                name=action.name,
+                speed=speed,
+                target_ticks=target_ticks,
+            )
+            completion_telemetry = (
+                self._wait_completion_telemetry(
+                    completion_subscription,
+                    done,
+                )
+            )
+        finally:
+            close_subscription = getattr(
+                completion_subscription,
+                "close",
+                None,
+            )
+            if callable(close_subscription):
+                close_subscription()
         emit("done", done)
-        self.maze.apply_completed_action(action)
+        evidence_result = dict(done)
+        if completion_telemetry is not None:
+            emit(
+                "completion.telemetry",
+                extract_fusion_telemetry(completion_telemetry),
+            )
+            evidence_result = {
+                **completion_telemetry,
+                **done,
+            }
+        evidence_payload = None
+        reliable_pose = None
+        if self.pose_tracker is not None:
+            try:
+                tracked = self.pose_tracker.complete_action(
+                    action_id=action_id,
+                    action=action,
+                    result=evidence_result,
+                    motion_target=motion_target,
+                )
+            except TaskPoseTrackerError as exc:
+                evidence_payload = {
+                    "status": "unsafe",
+                    "code": exc.code,
+                    "reasons": [exc.message],
+                }
+                emit("motion_evidence", evidence_payload)
+                emit(
+                    "step.unsafe",
+                    {
+                        "action_id": action_id,
+                        "error_code": exc.code,
+                    },
+                    legacy_log=False,
+                )
+                return MazeStepResult(
+                    action=action,
+                    action_id=action_id,
+                    telemetry=telemetry,
+                    done=done,
+                    map_text=self.maze.render_ascii(),
+                    motion_target=motion_target,
+                    outcome="unsafe",
+                    events=tuple(events),
+                    evidence=evidence_payload,
+                    reliable_pose=(
+                        self.pose_tracker.estimate().to_dict()
+                    ),
+                    error_code=exc.code,
+                )
+            emit("pose.updated", tracked.pose)
+            evidence_payload = tracked.decision.to_dict()
+            emit("motion_evidence", evidence_payload)
+            self._emit_truth_evaluation(
+                evidence_result,
+                tracked.pose,
+                action_id=action_id,
+                emit=emit,
+            )
+            if tracked.decision.status != "accepted":
+                outcome = (
+                    "recovery_required"
+                    if tracked.decision.status == "recoverable"
+                    else "unsafe"
+                )
+                error_code = (
+                    "MOTION_RECOVERY_REQUIRED"
+                    if outcome == "recovery_required"
+                    else tracked.decision.code
+                    or "MOTION_EVIDENCE_UNSAFE"
+                )
+                emit(
+                    f"step.{outcome}",
+                    {
+                        "action_id": action_id,
+                        "error_code": error_code,
+                    },
+                    legacy_log=False,
+                )
+                return MazeStepResult(
+                    action=action,
+                    action_id=action_id,
+                    telemetry=telemetry,
+                    done=done,
+                    map_text=self.maze.render_ascii(),
+                    motion_target=motion_target,
+                    outcome=outcome,
+                    events=tuple(events),
+                    evidence=evidence_payload,
+                    reliable_pose=tracked.pose.to_dict(),
+                    error_code=error_code,
+                )
+            self.maze.apply_completed_action(action)
+            reliable_pose = self.pose_tracker.accept_action(
+                action
+            ).to_dict()
+            emit("pose.committed", reliable_pose)
+        else:
+            self.maze.apply_completed_action(action)
         motion_report = None
         tune_event = None
         if self.analyzer is not None:
@@ -255,6 +429,8 @@ class MazeRunner:
             motion_target=motion_target,
             outcome=outcome,
             events=tuple(events),
+            evidence=evidence_payload,
+            reliable_pose=reliable_pose,
         )
 
     def _next_action_id(self) -> str:
@@ -280,6 +456,72 @@ class MazeRunner:
     def _log(self, event_type: str, payload: object) -> None:
         if self.logger is not None:
             self.logger.record(event_type, payload)
+
+    def _subscribe_completion_telemetry(self):
+        subscribe = getattr(self.client, "subscribe", None)
+        if not callable(subscribe):
+            return None
+        return subscribe(
+            message_types={"telemetry"},
+            max_queue=128,
+        )
+
+    def _wait_completion_telemetry(
+        self,
+        subscription,
+        done: Mapping[str, Any],
+    ) -> Mapping[str, Any] | None:
+        if subscription is None:
+            return None
+        timeout_s = min(
+            2.0,
+            max(0.05, float(getattr(self.client, "timeout_s", 1.0))),
+        )
+        deadline = time.monotonic() + timeout_s
+        expected_left = done.get("enc_left")
+        expected_right = done.get("enc_right")
+        while time.monotonic() < deadline:
+            message = subscription.get(
+                timeout_s=max(0.0, deadline - time.monotonic())
+            )
+            if message is None:
+                break
+            if (
+                expected_left is None
+                or expected_right is None
+                or (
+                    message.get("enc_left") == expected_left
+                    and message.get("enc_right") == expected_right
+                )
+            ):
+                return message
+        return None
+
+    @staticmethod
+    def _emit_truth_evaluation(
+        result: Mapping[str, Any],
+        estimate,
+        *,
+        action_id: str,
+        emit,
+    ) -> None:
+        try:
+            truth = extract_simulation_truth(result)
+            if truth is None:
+                return
+            evaluation = evaluate_pose(
+                estimate,
+                TruthPose.from_mapping(truth),
+            )
+        except (ProtocolError, ValueError, KeyError):
+            return
+        emit(
+            "sim.evaluation",
+            {
+                "action_id": action_id,
+                **evaluation.to_dict(),
+            },
+        )
 
     @staticmethod
     def _cancellation_outcome(

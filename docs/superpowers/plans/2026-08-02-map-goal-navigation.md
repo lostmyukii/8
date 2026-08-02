@@ -710,7 +710,62 @@ Commit：
 fix: gate maze progress on fused motion evidence
 ```
 
-实施记录在执行 Task 7 时写入本节。
+**Task 7 实施记录（2026-08-02）：**
+
+- RED：
+  - 四文件目标命令首先在收集阶段得到 `2 errors`，明确缺少
+    `rdk_maze_tuner.core.task_pose_tracker`。
+  - 建立基础门控后，补充“`done` 只有编码器、最终 ToF/IMU 位于新鲜
+    telemetry”用例；实现前该单测为 `1 failed`，结果错误落入 `unsafe`，
+    证明不能复用动作前测距。
+- 最小实现：
+  - 新增 run-scoped `TaskPoseTracker`，动作发送前冻结编码器、融合位姿和墙距
+    基线；只接收匹配 `action_id/name` 的 `done/error`。
+  - 新增共享 `WallEvidenceBuilder`；Dashboard 空闲定位和任务定位均使用同一套
+    不可变地图墙坐标、ToF 约束和纵向墙距变化算法。
+  - 沿运动轴仅使用动作前后匹配同一墙面的前/可选后向 ToF 差值作为外部位移；
+    没有有效纵向墙距时 `external_displacement_mm=0`，不会把编码器位移重复
+    当作独立证据。
+  - 无 IMU 时只有动作成功、格方向稳定且同时存在 x/y 两个独立墙面约束，任务
+    置信度才可达到 `0.80`；否则固定保持 `<0.80` 并进入
+    `POSE_UNCERTAIN`。
+  - `MazeRunner` 在动作前订阅单一 `DeviceSession` 的 telemetry，动作完成后
+    等待编码器与 `done` 匹配的新鲜帧，再依次记录 `pose.updated` 和
+    `motion_evidence`。只有 `accepted` 才推进并锚定逻辑格，且只推进一次。
+  - `recoverable` 不推进，Task 8 接入修正前以
+    `MOTION_RECOVERY_REQUIRED` 停车；`unsafe` 保留稳定错误码。地图与传感器
+    冲突同样不发动作，由编排器先调用 adapter `stop`，再写
+    `MAP_SENSOR_CONFLICT` 错误。
+  - `sim_truth` 被融合字段白名单剔除，只产生独立 `sim.evaluation` 误差事件；
+    不进入 tracker、滑移估计或动作证据。
+  - 每次 reset 后由 Dashboard runner factory 新建 tracker，任务完成只信任
+    TaskRunner 持有的该 run tracker；Dashboard 空闲估值不能推进任务。
+- 目标测试：四文件命令最终为 `50 passed in 1.44s`；其中独立的新鲜 telemetry
+  RED 用例实现后为 `1 passed`。
+- 完整回归：
+  - `compileall` 通过；
+  - Python `395 passed in 6.06s`；
+  - `api.js/state.js/render.js/controls.js/replay.js` 全部通过
+    `node --check`；
+  - ESP32 PlatformIO 构建通过，RAM `22744/327680` bytes，Flash
+    `317041/1310720` bytes；
+  - `git diff --check` 通过。
+- 隔离服务器 P1–P4：
+  - 首次向共享验收目录写入时因当前 SSH 用户无目录写权限，在创建临时目录前
+    失败，未启动 Webots；未扩大目录权限。
+  - 改用用户自有隔离目录后，run
+    `physical-20260802T125924Z-d6af5716` 顶层为 `PASS`，Webots
+    `R2025a`；P1 水平漂移 `0.0 m`、最大倾角 `0.004738°`，P2 三向 ToF
+    最大误差与固定种子扩散均为 `0.0 mm`，控制周期 `8.0 ms`，实时倍率
+    `0.9473768807171323`。
+  - 报告归档为
+    `/home/ubuntu/maze-acceptance/task7/physical-20260802T125924Z-d6af5716/report.json`，
+    SHA-256 为
+    `6b1a13236ff30287c01f8128b2bb38d5d070528e4414053be00815822a587711`。
+    该部署 release 不含 Git 元数据，报告 `source_commit=unknown`；因此本条
+    证明现有 P1–P4 物理链和数据合同未回归，不冒充本地未提交源码的发布验收。
+- 边界：未修改 ESP32 固件动作实现，未烧录、连接或驱动真实小车；Task 8 的有限
+  修正动作尚未实现，P5 完整走到 `(4,0)` 和正式站点发布也仍未执行。
 
 ### Task 8：实现有限修正动作的统一协议
 

@@ -1,13 +1,20 @@
 import json
 
-from rdk_maze_tuner.core.maze_map import Direction, MazeMap
+from rdk_maze_tuner.core.maze_definition import (
+    MapDefinition,
+    StartPose,
+    WallSegment,
+)
+from rdk_maze_tuner.core.maze_map import Direction, MazeMap, PlannedAction
 from rdk_maze_tuner.core.maze_planner import MazePlanner
 from rdk_maze_tuner.core.maze_runner import MazeRunner
+from rdk_maze_tuner.core.motion_evidence import ArrivalVerificationConfig
 from rdk_maze_tuner.core.motion_analyzer import MotionAnalyzer
 from rdk_maze_tuner.core.motion_targets import MotionTargetResolver
 from rdk_maze_tuner.core.auto_tuner import AutoTuner
 from rdk_maze_tuner.core.param_manager import ParamManager
 from rdk_maze_tuner.core.serial_client import SerialClient
+from rdk_maze_tuner.core.task_pose_tracker import TaskPoseTracker
 
 
 PARAMS = "rdk_maze_tuner/config/params.yaml"
@@ -59,6 +66,116 @@ def line(message):
 
 def sent_messages(fake):
     return [json.loads(item.decode("utf-8")) for item in fake.writes]
+
+
+def corridor_definition():
+    rows = 2
+    cols = 1
+    walls = (
+        WallSegment(0, 0, 1, 0),
+        WallSegment(0, 2, 1, 2),
+        WallSegment(0, 0, 0, 1),
+        WallSegment(0, 1, 0, 2),
+        WallSegment(1, 0, 1, 1),
+        WallSegment(1, 1, 1, 2),
+    )
+    return MapDefinition(
+        rows=rows,
+        cols=cols,
+        cell_width_mm=450,
+        cell_height_mm=450,
+        wall_thickness_mm=40,
+        wall_height_mm=180,
+        start=StartPose(0, 1, "N"),
+        goals=((0, 0),),
+        walls=walls,
+    )
+
+
+class FixedPlanner:
+    def __init__(self, action):
+        self.action = action
+
+    def next_action(self, _maze):
+        return self.action
+
+
+class EvidenceClient:
+    def __init__(self, baseline, result):
+        self.baseline = dict(baseline)
+        self.result = dict(result)
+        self.executed = []
+
+    def wait_telemetry(self):
+        return dict(self.baseline)
+
+    def execute_action(self, **command):
+        self.executed.append(command)
+        return {**self.result, "action_id": self.result.get("action_id", command["action_id"])}
+
+
+class TelemetrySubscription:
+    def __init__(self, messages):
+        self.messages = list(messages)
+        self.closed = False
+
+    def get(self, *, timeout_s=0.0):
+        if not self.messages:
+            return None
+        return self.messages.pop(0)
+
+    def close(self):
+        self.closed = True
+
+
+class SubscribedEvidenceClient(EvidenceClient):
+    def __init__(self, baseline, result, completion_telemetry):
+        super().__init__(baseline, result)
+        self.subscription = TelemetrySubscription(
+            [completion_telemetry]
+        )
+
+    def subscribe(self, *, message_types, max_queue):
+        assert set(message_types) == {"telemetry"}
+        return self.subscription
+
+
+def evidence_runner(*, result, conflict_required_samples=3):
+    params = ParamManager(
+        params_path=__import__("pathlib").Path(PARAMS),
+        limits_path=__import__("pathlib").Path(LIMITS),
+    )
+    maze = MazeMap.from_definition(
+        corridor_definition(),
+        wall_threshold_mm=150,
+        map_version_id="corridor-v1",
+    )
+    baseline = {
+        "type": "telemetry",
+        "ts_ms": 0,
+        "enc_left": 0,
+        "enc_right": 0,
+        "front_mm": 675,
+        "left_mm": 225,
+        "right_mm": 225,
+        "imu_available": False,
+    }
+    client = EvidenceClient(baseline, result)
+    pose_tracker = TaskPoseTracker.from_params(
+        maze=maze,
+        params=params,
+        arrival_config=ArrivalVerificationConfig(),
+        run_id="run-evidence",
+        conflict_required_samples=conflict_required_samples,
+    )
+    runner = MazeRunner(
+        client=client,
+        params=params,
+        maze=maze,
+        planner=FixedPlanner(PlannedAction("move_cell", Direction.NORTH)),
+        pose_tracker=pose_tracker,
+    )
+    return runner, client, maze
 
 
 def test_wait_telemetry_ignores_ready_and_returns_latest_sensor_frame():
@@ -305,3 +422,176 @@ def test_runner_reports_exhausted_separately_from_goal():
     )
 
     assert result.outcome == "exhausted"
+
+
+def test_runner_updates_pose_before_gate_and_advances_an_accepted_move_once():
+    runner, _client, maze = evidence_runner(
+        result={
+            "type": "done",
+            "name": "move_cell",
+            "success": True,
+            "duration_ms": 1000,
+            "enc_left": 1350,
+            "enc_right": 1350,
+            "front_mm": 225,
+            "left_mm": 225,
+            "right_mm": 225,
+            "imu_available": False,
+        }
+    )
+
+    result = runner.run_step()
+    event_types = [event["type"] for event in result.events]
+
+    assert result.outcome == "continue"
+    assert result.evidence["status"] == "accepted"
+    assert result.reliable_pose["grid_cell"] == [0, 0]
+    assert maze.position == (0, 0)
+    assert event_types.index("pose.updated") < event_types.index(
+        "motion_evidence"
+    )
+
+
+def test_recoverable_motion_does_not_advance_and_requests_safe_stop():
+    runner, _client, maze = evidence_runner(
+        result={
+            "type": "done",
+            "name": "move_cell",
+            "success": True,
+            "duration_ms": 1000,
+            "enc_left": 1095,
+            "enc_right": 1095,
+            "front_mm": 310,
+            "left_mm": 225,
+            "right_mm": 225,
+            "imu_available": False,
+        }
+    )
+
+    result = runner.run_step()
+
+    assert result.outcome == "recovery_required"
+    assert result.error_code == "MOTION_RECOVERY_REQUIRED"
+    assert result.evidence["status"] == "recoverable"
+    assert maze.position == (0, 1)
+
+
+def test_map_sensor_conflict_blocks_transport_action_and_keeps_logical_pose():
+    runner, client, maze = evidence_runner(
+        result={},
+        conflict_required_samples=1,
+    )
+    client.baseline["front_mm"] = 90
+
+    result = runner.run_step()
+
+    assert result.outcome == "unsafe"
+    assert result.error_code == "MAP_SENSOR_CONFLICT"
+    assert client.executed == []
+    assert maze.position == (0, 1)
+
+
+def test_sim_truth_is_emitted_only_as_evaluation_and_not_motion_evidence():
+    runner, _client, _maze = evidence_runner(
+        result={
+            "type": "done",
+            "name": "move_cell",
+            "success": True,
+            "duration_ms": 1000,
+            "enc_left": 1350,
+            "enc_right": 1350,
+            "front_mm": 225,
+            "left_mm": 225,
+            "right_mm": 225,
+            "imu_available": False,
+            "sim_truth": {
+                "x_mm": 225,
+                "y_mm": 225,
+                "yaw_deg": 0,
+            },
+        }
+    )
+
+    result = runner.run_step()
+    evaluation = next(
+        event for event in result.events if event["type"] == "sim.evaluation"
+    )
+
+    assert evaluation["payload"]["position_error_mm"] >= 0
+    assert "sim_truth" not in str(result.evidence)
+
+
+def test_runner_uses_fresh_subscribed_telemetry_when_done_has_only_encoders():
+    params = ParamManager(
+        params_path=__import__("pathlib").Path(PARAMS),
+        limits_path=__import__("pathlib").Path(LIMITS),
+    )
+    maze = MazeMap.from_definition(
+        corridor_definition(),
+        wall_threshold_mm=150,
+        map_version_id="corridor-v1",
+    )
+    baseline = {
+        "type": "telemetry",
+        "ts_ms": 0,
+        "enc_left": 0,
+        "enc_right": 0,
+        "front_mm": 675,
+        "left_mm": 225,
+        "right_mm": 225,
+        "imu_available": True,
+        "imu_yaw_deg": 0,
+    }
+    client = SubscribedEvidenceClient(
+        baseline,
+        {
+            "type": "done",
+            "name": "move_cell",
+            "success": True,
+            "duration_ms": 1000,
+            "enc_left": 1350,
+            "enc_right": 1350,
+        },
+        {
+            "type": "telemetry",
+            "ts_ms": 1000,
+            "state": "IDLE",
+            "enc_left": 1350,
+            "enc_right": 1350,
+            "front_mm": 225,
+            "left_mm": 225,
+            "right_mm": 225,
+            "imu_available": True,
+            "imu_yaw_deg": 0,
+            "sim_truth": {
+                "x_mm": 225,
+                "y_mm": 225,
+                "yaw_deg": 0,
+            },
+        },
+    )
+    runner = MazeRunner(
+        client=client,
+        params=params,
+        maze=maze,
+        planner=FixedPlanner(
+            PlannedAction("move_cell", Direction.NORTH)
+        ),
+        pose_tracker=TaskPoseTracker.from_params(
+            maze=maze,
+            params=params,
+            arrival_config=ArrivalVerificationConfig(),
+            run_id="run-subscribed",
+        ),
+    )
+
+    result = runner.run_step()
+
+    assert result.outcome == "continue"
+    assert result.evidence["status"] == "accepted"
+    assert maze.position == (0, 0)
+    assert client.subscription.closed is True
+    assert any(
+        event["type"] == "completion.telemetry"
+        for event in result.events
+    )

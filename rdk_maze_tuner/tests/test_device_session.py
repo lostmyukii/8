@@ -130,6 +130,40 @@ def test_single_background_reader_routes_ack_result_and_telemetry():
         session.close()
 
 
+def test_action_result_can_outlive_short_command_ack_timeout():
+    stream = InteractiveSerial()
+    session = DeviceSession(
+        SerialClient(stream, timeout_s=0.02),
+        action_result_timeout_s=0.2,
+    )
+    session.start()
+    result = {}
+
+    def run_action():
+        result["value"] = session.execute_action_with_ack(
+            action_id="a-slow-cell",
+            name="move_cell",
+            speed=0.25,
+            target_ticks=2430,
+        )
+
+    action_thread = threading.Thread(target=run_action)
+    action_thread.start()
+    deadline = time.monotonic() + 0.1
+    while stream.pending_action is None and time.monotonic() < deadline:
+        time.sleep(0.001)
+
+    time.sleep(0.04)
+    assert action_thread.is_alive()
+    stream.complete_action()
+    action_thread.join(timeout=0.5)
+
+    try:
+        assert result["value"][1]["action_id"] == "a-slow-cell"
+    finally:
+        session.close()
+
+
 def test_concurrent_heartbeat_and_action_do_not_steal_each_others_messages():
     stream = InteractiveSerial()
     session = DeviceSession(SerialClient(stream, timeout_s=0.5))

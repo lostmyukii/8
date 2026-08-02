@@ -133,9 +133,17 @@ class DeviceSession:
         client: SerialClient,
         *,
         idle_sleep_s: float = 0.002,
+        action_result_timeout_s: float | None = None,
     ) -> None:
         self.client = client
         self.timeout_s = client.timeout_s
+        self.action_result_timeout_s = (
+            self.timeout_s
+            if action_result_timeout_s is None
+            else float(action_result_timeout_s)
+        )
+        if self.action_result_timeout_s <= 0:
+            raise ValueError("action_result_timeout_s must be positive")
         self._idle_sleep_s = idle_sleep_s
         self._reader_owner = object()
         self._lock = threading.RLock()
@@ -315,7 +323,7 @@ class DeviceSession:
             )
             self._validate_ack(ack, seq=seq)
             result = result_pending.wait(
-                timeout_s=self.timeout_s,
+                timeout_s=self.action_result_timeout_s,
                 description=f"result of action {action_id}",
             )
             return ack, result

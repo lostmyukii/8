@@ -17,11 +17,15 @@ from .base import ModeAdapter, ModeAdapterError
 
 
 DEFAULT_SIMULATION_ENDPOINT = "127.0.0.1:8765"
+DEFAULT_ACTION_RESULT_TIMEOUT_S = 15.0
 
 
 def _open_simulation_session(endpoint: str) -> DeviceSession:
     stream = open_tcp(endpoint)
-    return DeviceSession(SerialClient(stream, timeout_s=3.0))
+    return DeviceSession(
+        SerialClient(stream, timeout_s=3.0),
+        action_result_timeout_s=DEFAULT_ACTION_RESULT_TIMEOUT_S,
+    )
 
 
 class SimulationModeAdapter(ModeAdapter):

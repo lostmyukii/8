@@ -120,10 +120,17 @@ def create_app(
         rate_limiter=login_rate_limiter or LoginRateLimiter(),
     )
     params = ParamManager(params_path=params_path, limits_path=limits_path)
+    action_result_timeout_s = max(
+        float(params.get("safety.action_timeout_ms")) / 1_000.0 + 3.0,
+        3.0,
+    )
     coordinated_client = (
         client
         if isinstance(client, DeviceSession)
-        else DeviceSession(client)
+        else DeviceSession(
+            client,
+            action_result_timeout_s=action_result_timeout_s,
+        )
         if client is not None
         else None
     )

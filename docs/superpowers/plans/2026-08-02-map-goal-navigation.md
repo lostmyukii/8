@@ -1307,6 +1307,38 @@ test: require complete map-goal P5 acceptance
 
 实施记录必须写入实际 acceptance run_id、提交哈希和报告路径，但不能写凭据。
 
+实施记录（2026-08-02，候选门禁）：
+
+- 先从当前受控生产 `MapRepository` 以只读方式导出
+  `Task12 公网验收迷宫 · v2` 的结构化定义；资产中未保留数据库 ID、账户或
+  运行信息。本地 `validate_map_definition` 重新计算内容摘要为
+  `c48518f9f29bda59fd345c87668ff09d0efeb8bb41e3efd9f401ea8fb9ec485d`，
+  与生产所选 v2 完全一致；起点为 `(0,4)·N`，主终点为 `(4,0)`。
+- RED 以收集错误证明 P5 schema 和 runner 尚不存在。新增严格 schema 后，
+  客户端覆盖终点、只到 `(0,3)`、仅编码器证据、地图冲突、依赖
+  `sim_truth`、动作终态 ID 不匹配、缺少转向/修正/路线/JSONL 以及缺少真实
+  仿真评估样本均不能成为 PASS。
+- P5 为每次试验创建独立临时数据目录、SQLite、随机 loopback 端口和临时
+  Argon2 账户；通过候选 Dashboard 的真实 HTTP API 完成登录、租约、自动任务
+  创建、预检、重置、开始、等待终态、成绩和回放读取。两次试验固定地图、参数
+  版本、`normal-v1` 摘要和 seed。Secure session cookie 只在该隔离 loopback
+  客户端中显式携带，不读取或复用生产账户密码。
+- 报告保存 source commit、Webots 版本、地图/参数/profile 摘要、冻结完成
+  阈值、路线、逐动作 `action_id/done/error`、有限修正前后误差、融合终态、
+  成绩、回放和原始 JSONL。`sim_truth` 只计算碰撞、越界、穿墙等 P5 评估，
+  schema 明确禁止它进入算法证据来源。
+- runner 只管理自己启动并写 PID 文件的 Webots 和 Dashboard；报告先写
+  `.tmp-<run_id>`，严格校验后原子改名。Webots 缺失时生成结构完整的
+  `unavailable` 报告并返回非零，不伪造 PASS。
+- `deploy_release.sh` 已在 `/srv/maze/current` 原子切换之前串联 P1–P4 和
+  P5；P5 任一次未到 `(4,0)`、出现物理安全计数或证据不完整都会中止候选。
+- 目标测试 13 passed；固定完整回归 462 passed；PlatformIO 构建成功
+  （RAM 22,800 / 327,680，Flash 319,257 / 1,310,720）；固定五个
+  JavaScript 文件、release shell 语法和 `git diff --check` 均通过。
+- 本机没有可执行 Webots，因此没有写虚假物理 run_id。候选服务器的实际
+  P1–P5 run_id、报告路径和对应提交哈希必须在 Task 13 原子发布前取得并写回；
+  该结果仍只代表仿真，不代表真实小车。
+
 ### Task 13：原子部署、正式浏览器验收与回滚证明
 
 **文件：**

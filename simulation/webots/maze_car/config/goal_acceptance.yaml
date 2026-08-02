@@ -1,0 +1,8 @@
+schema_version: 1
+map_version_id: task12-public-v2
+map_digest: c48518f9f29bda59fd345c87668ff09d0efeb8bb41e3efd9f401ea8fb9ec485d
+param_version_id: "1"
+physical_profile_id: normal-v1
+trials: 2
+max_steps: 500
+task_timeout_s: 240

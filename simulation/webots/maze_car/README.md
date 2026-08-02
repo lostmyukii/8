@@ -103,6 +103,41 @@ Webots 不存在时报告状态是 `unavailable` 且命令返回非零；ready �
 不会把缺失证据写成 PASS。runner 只回收自己启动并写入 PID 文件的
 Webots 进程，不使用 `pkill` 或 `killall`。
 
+## 自动化 P5 地图终点验收
+
+P5 使用从受控 `MapRepository` 导出的
+`config/maps/task12-public-v2.json`。该资产不包含数据库 ID、账户或运行
+信息；其内容摘要固定为
+`c48518f9f29bda59fd345c87668ff09d0efeb8bb41e3efd9f401ea8fb9ec485d`，
+起点为 `(0,4)·N`，地图主终点为 `(4,0)`。
+
+```bash
+python3 -m simulation.webots.maze_car.tools.run_goal_acceptance \
+  --webots /usr/local/bin/webots \
+  --world simulation/webots/maze_car/worlds/maze_physical_calibration.wbt \
+  --map simulation/webots/maze_car/config/maps/task12-public-v2.json \
+  --config simulation/webots/maze_car/config/goal_acceptance.yaml \
+  --output /srv/maze/shared/acceptance/goal
+```
+
+runner 为每次试验创建独立数据库、数据目录、测试账户和随机 loopback
+端口，经真实 Dashboard HTTP API 完成登录、控制租约、任务创建、预检、
+重置、开始、等待完成、成绩和回放读取。固定地图、参数、`normal-v1`
+profile 和随机种子连续运行两次。报告必须证明：
+
+- 两次均由 `(0,4)·N` 沿合法路线到达可靠格 `(4,0)`。
+- 最终状态为 `COMPLETED / goal_reached`，且至少包含一次转向。
+- 每个动作都有匹配 `action_id` 的 `done/error`，并保留有限修正前后误差。
+- 碰撞、越界、穿墙和地图传感器冲突均为 0。
+- 算法证据来自编码器、三向 ToF、墙约束和可选 IMU；`sim_truth` 仅用于
+  仿真评估，不能成为到达判定输入。
+- 结构化回放和原始 JSONL 都存在。
+
+任一字段缺失、终点被覆盖、只到中间格、编码器空转、冲突后继续、
+依赖 `sim_truth` 或第二次重复失败，P5 均返回非零。报告先写入临时目录，
+通过严格 schema 后才原子改名。服务器 release 脚本在切换
+`/srv/maze/current` 之前同时要求 P1–P4 和 P5 PASS。
+
 服务器的 stream、desktop、headless 三种服务均显式加载
 `maze_physical_world.wbt` 和 `normal-v1`。它们互斥运行，协议只监听
 `127.0.0.1:8765`；stream 继续输出 W3D，headless 保持 world 中定义的

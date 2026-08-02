@@ -13,6 +13,7 @@ candidate_link="/srv/maze/.current-${release_stamp}"
 current_link="/srv/maze/current"
 previous_link="/srv/maze/previous"
 acceptance_root="/srv/maze/shared/acceptance/physical"
+goal_acceptance_root="/srv/maze/shared/acceptance/goal"
 public_url=${MAZE_PUBLIC_URL:-https://8.ilelezhan.cn/}
 public_host=${public_url#*://}
 public_host=${public_host%%/*}
@@ -60,6 +61,7 @@ install -d -m 0755 -o maze -g maze \
   /srv/maze/logs \
   /srv/maze/shared
 install -d -m 0755 -o maze -g maze "${acceptance_root}"
+install -d -m 0755 -o maze -g maze "${goal_acceptance_root}"
 
 if [[ -d ${repo_source} ]]; then
   install -d -m 0755 "${release_dir}"
@@ -145,6 +147,19 @@ sudo -u maze env \
   --world "${release_dir}/simulation/webots/maze_car/worlds/maze_physical_calibration.wbt" \
   --scenarios "${release_dir}/simulation/webots/maze_car/config/acceptance_scenarios.yaml" \
   --output "${acceptance_root}"
+
+sudo -u maze env \
+  HOME=/home/maze \
+  PYTHONUNBUFFERED=1 \
+  PYTHONDONTWRITEBYTECODE=1 \
+  MAZE_PHYSICAL_PROFILE_DIR="${release_dir}/simulation/webots/maze_car/config/physical_profiles" \
+  "${release_dir}/.venv/bin/python" \
+  -m simulation.webots.maze_car.tools.run_goal_acceptance \
+  --webots /usr/local/bin/webots \
+  --world "${release_dir}/simulation/webots/maze_car/worlds/maze_physical_calibration.wbt" \
+  --map "${release_dir}/simulation/webots/maze_car/config/maps/task12-public-v2.json" \
+  --config "${release_dir}/simulation/webots/maze_car/config/goal_acceptance.yaml" \
+  --output "${goal_acceptance_root}"
 
 chmod -R a-w "${release_dir}"
 if [[ -n ${previous_target} && -d ${previous_target} ]]; then
@@ -279,3 +294,4 @@ else
   echo "Current source: local archive (${source_ref})"
 fi
 echo "Physical acceptance: ${acceptance_root}"
+echo "Goal acceptance: ${goal_acceptance_root}"

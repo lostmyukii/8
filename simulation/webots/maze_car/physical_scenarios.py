@@ -57,6 +57,7 @@ _THRESHOLD_FIELDS = frozenset(
         "min_success_rate",
         "min_mean_abs_slip",
         "min_trajectory_difference_mm",
+        "min_configured_friction_difference",
         "min_slip_difference",
         "min_yaw_difference_deg",
         "min_patch_slip_increase",

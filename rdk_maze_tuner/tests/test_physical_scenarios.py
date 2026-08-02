@@ -66,6 +66,27 @@ def test_scenario_profile_binding_cannot_be_overridden_at_runtime():
         )
 
 
+def test_asymmetric_acceptance_uses_frozen_friction_delta_not_sample_timing():
+    repository = PhysicalScenarioRepository()
+    scenario = repository.get("asymmetric-p4-v1")
+    profile = PhysicalProfileRepository().get("asymmetric-v1")
+    thresholds = dict(scenario.acceptance_thresholds)
+
+    assert "min_slip_difference" not in thresholds
+    assert thresholds["min_configured_friction_difference"] == pytest.approx(
+        0.50
+    )
+    assert abs(
+        profile.surface.left_wheel_friction
+        - profile.surface.right_wheel_friction
+    ) >= thresholds["min_configured_friction_difference"]
+    assert thresholds["min_yaw_difference_deg"] >= 1.0
+    assert scenario.expected_observations == (
+        "configured_left_right_friction_diverges",
+        "heading_changes_from_normal",
+    )
+
+
 @pytest.mark.parametrize(
     "mutator",
     [

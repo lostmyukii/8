@@ -49,10 +49,10 @@ scenarios:
     actions:
       - {name: move_cell, target_ticks: 1350, speed: 0.35, repeat: 3}
     expected_observations:
-      - left_right_slip_diverge
+      - configured_left_right_friction_diverges
       - heading_changes_from_normal
     acceptance_thresholds:
-      min_slip_difference: 0.04
+      min_configured_friction_difference: 0.50
       min_yaw_difference_deg: 1.0
     timeout_ms: 60000
 

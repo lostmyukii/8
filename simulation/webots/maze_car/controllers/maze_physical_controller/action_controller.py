@@ -44,6 +44,7 @@ class ActionControlConfig:
     turn_brake_horizon_s: float = 0.035
     turn_progress_floor_ratio: float = 0.5
     minimum_speed_scale: float = 0.22
+    straight_speed_fraction_limit: float = 0.10
     move_torque_scale: float = 0.30
     turn_torque_scale: float = 1.0
     danger_stop_mm: float = 60.0
@@ -81,6 +82,7 @@ class ActionControlConfig:
             self.turn_min_velocity_rad_s,
             self.turn_crossing_limit_deg,
             self.turn_brake_horizon_s,
+            self.straight_speed_fraction_limit,
             self.danger_stop_mm,
             self.action_timeout_ms,
             self.heartbeat_timeout_ms,
@@ -107,6 +109,10 @@ class ActionControlConfig:
         if not 0 < self.turn_progress_floor_ratio <= 1:
             raise ValueError(
                 "turn_progress_floor_ratio must be between 0 and 1"
+            )
+        if self.straight_speed_fraction_limit > 1:
+            raise ValueError(
+                "straight_speed_fraction_limit must be between 0 and 1"
             )
         if not 0 < self.move_torque_scale <= 1:
             raise ValueError(
@@ -592,7 +598,7 @@ class PhysicalActionController:
         heading_error: float,
     ) -> tuple[float, float]:
         assert self._active is not None
-        speed_fraction = min(1.0, abs(self._active.speed))
+        _, speed_fraction, _ = self._speed_fractions()
         base = speed_fraction * self.profile.motor.max_velocity_rad_s
         if self._active.name in _STRAIGHT_ACTIONS:
             slowdown_ratio = remaining / self.config.slowdown_ticks
@@ -931,6 +937,9 @@ class PhysicalActionController:
             * 1000.0
             / self.profile.encoder.ticks_per_revolution
         )
+        requested_speed, applied_speed, traction_limited = (
+            self._speed_fractions()
+        )
         return {
             "action_id": self._active.action_id if self._active else None,
             "progress_ticks": round(progress, 3),
@@ -938,6 +947,9 @@ class PhysicalActionController:
             "encoder_balance_error_ticks": left_delta - right_delta,
             "heading_error_deg": round(heading_error, 6),
             "settled_ticks": self._settled_ticks,
+            "requested_speed_fraction": round(requested_speed, 6),
+            "applied_speed_fraction": round(applied_speed, 6),
+            "traction_limited": traction_limited,
             "wheelspin_predicted_mm": round(
                 predicted_motion_mm,
                 3,
@@ -947,6 +959,17 @@ class PhysicalActionController:
                 3,
             ),
         }
+
+    def _speed_fractions(self) -> tuple[float, float, bool]:
+        if self._active is None:
+            return (0.0, 0.0, False)
+        requested = min(1.0, abs(self._active.speed))
+        applied = (
+            min(requested, self.config.straight_speed_fraction_limit)
+            if self._active.name in _STRAIGHT_ACTIONS
+            else requested
+        )
+        return (requested, applied, applied < requested)
 
     def _zero_control(self) -> None:
         self._left_pid.reset()

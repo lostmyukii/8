@@ -157,6 +157,27 @@ def test_straight_control_uses_encoder_difference_and_imu_heading():
     assert output.telemetry["heading_error_deg"] < 0
 
 
+def test_straight_speed_is_limited_to_the_validated_traction_envelope():
+    control = controller(straight_speed_fraction_limit=0.10)
+    control.start(
+        ActionRequest("traction-cap", "move_cell", 200, 0.25),
+        sample=sample(ts_ms=0),
+        now_ms=0,
+    )
+
+    output = control.tick(sample=sample(ts_ms=8), now_ms=8)
+
+    assert output.target_velocity_left_rad_s == pytest.approx(2.0)
+    assert output.target_velocity_right_rad_s == pytest.approx(2.0)
+    assert output.telemetry["requested_speed_fraction"] == pytest.approx(
+        0.25
+    )
+    assert output.telemetry["applied_speed_fraction"] == pytest.approx(
+        0.10
+    )
+    assert output.telemetry["traction_limited"] is True
+
+
 def test_velocity_control_keeps_dead_zone_feedforward_at_setpoint():
     control = controller()
     control.start(
@@ -171,8 +192,8 @@ def test_velocity_control_keeps_dead_zone_feedforward_at_setpoint():
             ts_ms=16,
             enc_left=20,
             enc_right=20,
-            left_speed=10.0,
-            right_speed=10.0,
+            left_speed=2.0,
+            right_speed=2.0,
         ),
         now_ms=16,
     )

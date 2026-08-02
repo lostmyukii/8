@@ -1,5 +1,5 @@
 const VIEWER_SOURCE = "maze-simulation-viewer";
-const STREAM_PATH = "/simulation";
+const STREAM_PATH = "/simulation/";
 const DEFAULT_THUMBNAIL =
   "https://cyberbotics.com/wwi/R2025a/images/loading/default_thumbnail.png";
 const MOBILE_DEVICE =

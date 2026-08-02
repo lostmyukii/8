@@ -188,7 +188,7 @@ def test_webots_viewer_auto_connects_with_same_origin_secure_websocket():
     assert 'event.origin !== window.location.origin' in stream_source
     assert 'location.protocol === "https:" ? "wss:" : "ws:"' in viewer_source
     assert 'location.host' in viewer_source
-    assert '"/simulation"' in viewer_source
+    assert 'const STREAM_PATH = "/simulation/"' in viewer_source
     assert '.connect(' in viewer_source
     assert '"w3d"' in viewer_source
     assert '"maze.webots.ready"' in viewer_source

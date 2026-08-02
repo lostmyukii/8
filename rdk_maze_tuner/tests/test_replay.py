@@ -204,6 +204,89 @@ def test_replay_manifest_uses_relative_monotonic_time_and_separate_truth(
     assert len(manifest["tracks"]["sim_truth"]) == 1
 
 
+def test_replay_marks_legacy_goal_and_indexes_structured_navigation_evidence(
+    tmp_path,
+):
+    database = Database(tmp_path / "platform.sqlite3")
+    database.initialize()
+    create_run(database, "run-legacy-goal")
+    store = EventStore(
+        database=database,
+        runs_dir=tmp_path / "runs",
+        monotonic_ns=iter(range(1_000_000, 1_000_100)).__next__,
+    )
+    for event_type, payload in (
+        (
+            "route.planned",
+            {
+                "cells": [[0, 1], [0, 0]],
+                "actions": [{"name": "move_cell"}],
+                "map_version_id": "map-v1",
+                "map_digest": "digest-v1",
+            },
+        ),
+        (
+            "planned_action",
+            {"action_id": "a-1", "name": "move_cell"},
+        ),
+        (
+            "pose.updated",
+            {
+                "grid_cell": [0, 0],
+                "x_mm": 125,
+                "y_mm": 125,
+                "yaw_deg": 0,
+                "confidence": 0.9,
+            },
+        ),
+        (
+            "motion.recovery.started",
+            {
+                "original_action_id": "a-1",
+                "recovery_action_id": "a-1-recovery-1",
+                "attempt": 1,
+            },
+        ),
+        (
+            "param_snapshot",
+            {"param_version": "param-v1", "base_speed": 0.25},
+        ),
+        ("step.goal_reached", {"position": [0, 0]}),
+    ):
+        store.append(
+            run_id="run-legacy-goal",
+            event_type=event_type,
+            source="maze_runner",
+            payload=payload,
+        )
+    service = ReplayService(
+        database=database,
+        event_store=store,
+        data_dir=tmp_path,
+        utc_now=lambda: FIXED_UTC,
+    )
+
+    manifest = service.build_manifest("run-legacy-goal")
+    legacy = next(
+        event
+        for event in manifest["timeline"]
+        if event["type"] == "step.goal_reached"
+    )
+
+    assert legacy["payload"]["legacy_logical_only"] is True
+    assert legacy["payload"]["verification_label"] == "旧版逻辑到达"
+    assert set(manifest["tracks"]) >= {
+        "route",
+        "action",
+        "fused_pose",
+        "recovery",
+        "parameter_snapshot",
+        "map_identity",
+    }
+    assert manifest["tracks"]["route"]
+    assert manifest["tracks"]["recovery"]
+
+
 def test_finalize_writes_replay_manifest_and_indexes_jsonl(tmp_path):
     database, _store, service = make_replay(tmp_path)
 

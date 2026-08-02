@@ -27,6 +27,7 @@ KEY_EVENT_TYPES = {
     "task.completed",
     "task.error",
     "task.estop",
+    "step.goal_verified",
     "param_change",
     "approval.created",
     "approval.decided",
@@ -144,6 +145,12 @@ class ReplayService:
             "sim_truth": [],
             "surface": [],
             "fault": [],
+            "route": [],
+            "action": [],
+            "fused_pose": [],
+            "recovery": [],
+            "parameter_snapshot": [],
+            "map_identity": [],
         }
         physical_profile = _run_physical_profile(run)
         if physical_profile is not None:
@@ -160,6 +167,15 @@ class ReplayService:
                 3,
             )
             payload = event.get("payload")
+            if (
+                event["type"] == "step.goal_reached"
+                and isinstance(payload, Mapping)
+            ):
+                payload = {
+                    **payload,
+                    "legacy_logical_only": True,
+                    "verification_label": "旧版逻辑到达",
+                }
             item = {
                 "event_id": event["event_id"],
                 "t_ms": t_ms,
@@ -530,8 +546,12 @@ def _pose_point(
         "y_mm": float(payload["y_mm"]),
         "yaw_deg": float(payload["yaw_deg"]) % 360.0,
     }
-    if _finite_number(payload.get("pose_confidence")):
-        point["confidence"] = float(payload["pose_confidence"])
+    confidence = payload.get(
+        "pose_confidence",
+        payload.get("confidence"),
+    )
+    if _finite_number(confidence):
+        point["confidence"] = float(confidence)
     return point
 
 
@@ -648,6 +668,41 @@ def _evidence_payloads(
             ),
         )
         result["fault"] = fault or {"event_type": event_type}
+    if event_type == "route.planned":
+        result["route"] = dict(payload)
+    if (
+        event_type in {"planned_action", "done", "error"}
+        or event_type.startswith("motion.recovery.")
+    ):
+        result["action"] = dict(payload)
+    if event_type in {"pose.updated", "pose.committed"}:
+        result["fused_pose"] = dict(payload)
+    if event_type.startswith("motion.recovery."):
+        result["recovery"] = dict(payload)
+    if event_type in {"param_snapshot", "param_change"}:
+        result["parameter_snapshot"] = dict(payload)
+    map_identity = _present_fields(
+        payload,
+        (
+            "map_version_id",
+            "map_digest",
+            "source_map_version",
+            "source_map_digest",
+        ),
+    )
+    verification_goal = payload.get("goal")
+    if isinstance(verification_goal, Mapping):
+        map_identity.update(
+            _present_fields(
+                verification_goal,
+                (
+                    "source_map_version",
+                    "source_map_digest",
+                ),
+            )
+        )
+    if map_identity:
+        result["map_identity"] = map_identity
     return result
 
 

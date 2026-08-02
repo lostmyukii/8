@@ -12,6 +12,9 @@ const CATEGORY_LABELS = {
 };
 
 const EVIDENCE_CHANNELS = [
+  "actions",
+  "parameters",
+  "safety",
   "physical_profile",
   "wheel",
   "tof",
@@ -21,6 +24,12 @@ const EVIDENCE_CHANNELS = [
   "sim_truth",
   "surface",
   "fault",
+  "route",
+  "action",
+  "fused_pose",
+  "recovery",
+  "parameter_snapshot",
+  "map_identity",
 ];
 
 const model = {
@@ -230,7 +239,7 @@ function renderKeyEvents(events, duration) {
       button.type = "button";
       button.className = `replay-notch replay-notch--${event.channel || "task"}`;
       button.style.left = `${percent(event.t_ms, duration)}%`;
-      button.title = `${formatTime(event.t_ms)} · ${event.type}`;
+      button.title = `${formatTime(event.t_ms)} · ${eventLabel(event)}`;
       button.setAttribute("aria-label", button.title);
       button.addEventListener("click", () => {
         pausePlayback();
@@ -310,10 +319,16 @@ function renderCurrentEvent() {
   }
   setText(
     "replayEventDetail",
-    `${formatTime(current.t_ms)} · ${current.type} · ${current.source} · ${
+    `${formatTime(current.t_ms)} · ${eventLabel(current)} · ${current.source} · ${
       JSON.stringify(current.payload || {})
     }`,
   );
+}
+
+function eventLabel(event) {
+  return event?.payload?.legacy_logical_only
+    ? `${event.type}（旧版逻辑到达，无物理证据）`
+    : event?.type || "event";
 }
 
 function durationMs() {

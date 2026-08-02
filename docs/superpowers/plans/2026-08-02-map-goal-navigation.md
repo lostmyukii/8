@@ -975,7 +975,28 @@ Commit：
 feat: verify physical arrival before task completion
 ```
 
-实施记录在执行 Task 9 时写入本节。
+实施记录（2026-08-02）：
+
+- RED 先证明 `GoalVerifier` 尚不存在；补入纯组件后，集成测试仍以
+  4 failed / 54 passed 暴露旧 `goal_reached`、编排器误完成、旧回放无警示和
+  未验证到达得分四条缺口。
+- 新增 `GoalVerifier`，同时校验地图版本/摘要、逻辑格、匹配成功
+  `done`、可靠融合格、连续位姿容差、冻结置信度以及未处理故障；生产自动任务
+  由任务快照构造验证器。
+- `MazeRunner` 只在原动作或受限修正动作有匹配完成证据后产生
+  `step.goal_verified`；失败写 `step.goal_unverified` 和完整原因。
+  `TaskOrchestrator` 只接受 `goal_verified`，但最终完成原因继续写
+  `goal_reached` 以保持既有评分合同。
+- replay 为旧 `step.goal_reached` 增加
+  `legacy_logical_only=true` 和“旧版逻辑到达”标签；结构化轨道加入路线、
+  动作、融合位姿、修正、参数快照和地图身份，页面同时显示六条对应证据轨。
+  scoring 对缺少 `step.goal_verified` 的新完成事件不给完成分，不重写历史
+  已冻结分数。
+- 目标测试为 59 passed；含回放 UI 合同检查为 70 passed。固定完整回归为
+  419 passed；PlatformIO 构建成功（RAM 22,800 / 327,680，Flash
+  319,257 / 1,310,720）；五个固定 JavaScript 文件 `node --check`
+  与 `git diff --check` 均通过。真实浏览器生产验收留在 Task 12 发布后执行，
+  当前不拿尚未部署的旧站点冒充新版本。
 
 ### Task 10：接入隔离的手工目标单步调试
 

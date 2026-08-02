@@ -201,6 +201,27 @@ def test_dashboard_v2_loads_small_native_javascript_modules(tmp_path):
     assert 'from "./stream.js"' in entrypoint
 
 
+def test_replay_ui_exposes_verified_navigation_evidence_and_legacy_warning(
+    tmp_path,
+):
+    html = dashboard_html(tmp_path)
+    replay_source = (STATIC_DIR / "replay.js").read_text(encoding="utf-8")
+
+    for channel in (
+        "route",
+        "action",
+        "fused_pose",
+        "recovery",
+        "parameter_snapshot",
+        "map_identity",
+    ):
+        assert f'data-channel="{channel}"' in html
+        assert f'"{channel}"' in replay_source
+    assert "旧版逻辑到达，无物理证据" in replay_source
+    assert "eventLabel(current)" in replay_source
+    assert "eventLabel(event)" in replay_source
+
+
 def test_webots_viewer_auto_connects_with_same_origin_secure_websocket():
     stream_source = (STATIC_DIR / "stream.js").read_text(encoding="utf-8")
     viewer_source = (STATIC_DIR / "simulation_viewer.js").read_text(

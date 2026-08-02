@@ -242,6 +242,22 @@ class ScoringService:
             ),
             None,
         )
+        goal_verification = next(
+            (
+                event
+                for event in reversed(events)
+                if event["type"] == "step.goal_verified"
+                and isinstance(event.get("payload"), Mapping)
+                and (
+                    (
+                        event["payload"].get("verification")
+                        or {}
+                    ).get("verified")
+                    is True
+                )
+            ),
+            None,
+        )
         attempts = len(done_events) + len(action_errors)
         position_errors = _numbers(
             payloads,
@@ -364,10 +380,22 @@ class ScoringService:
             telemetry,
             "simulation_realtime_factor",
         )
-        completed = run["status"] == "COMPLETED"
+        completion_reason = (
+            completion["payload"].get("reason")
+            if completion is not None
+            else None
+        )
+        completed = (
+            run["status"] == "COMPLETED"
+            and (
+                completion_reason != "goal_reached"
+                or goal_verification is not None
+            )
+        )
         goal_reached = bool(
-            completion
-            and completion["payload"].get("reason") == "goal_reached"
+            completed
+            and completion_reason == "goal_reached"
+            and goal_verification is not None
         )
         return {
             "completed": completed,

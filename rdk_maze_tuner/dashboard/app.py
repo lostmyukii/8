@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from rdk_maze_tuner.core.device_session import DeviceSession
 from rdk_maze_tuner.core.goal_directed_planner import GoalDirectedPlanner
 from rdk_maze_tuner.core.maze_map import MazeMap
+from rdk_maze_tuner.core.goal_verifier import GoalVerifier
 from rdk_maze_tuner.core.maze_planner import MazePlanner
 from rdk_maze_tuner.core.maze_runner import MazeRunner
 from rdk_maze_tuner.core.motion_evidence import (
@@ -262,6 +263,20 @@ def create_app(
                 planner=_planner_for_task(task),
                 action_prefix=task.run_id or task.task_id,
                 pose_tracker=pose_tracker,
+                goal_verifier=(
+                    GoalVerifier(
+                        goal=task.goal,
+                        map_version_id=maze.map_version_id,
+                        map_digest=maze.map_digest,
+                        cell_width_mm=float(maze.cell_width_mm),
+                        cell_height_mm=float(maze.cell_height_mm),
+                        config=ArrivalVerificationConfig.from_mapping(
+                            task.arrival_verification_snapshot
+                        ),
+                    )
+                    if task.run_kind == "auto_to_map_goal"
+                    else None
+                ),
             )
 
         resolved_tasks = TaskOrchestrator(

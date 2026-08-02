@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Mapping, Optional, Protocol
 
 from .logger import JsonlLogger
+from .goal_verifier import GoalVerificationInput, GoalVerifier
 from .maze_map import MazeMap, PlannedAction
 from .auto_tuner import AutoTuner
 from .motion_analyzer import MotionAnalyzer, MotionReport
@@ -72,6 +73,7 @@ class MazeStepResult:
     evidence: Optional[dict[str, Any]] = None
     reliable_pose: Optional[dict[str, Any]] = None
     error_code: Optional[str] = None
+    goal_verification: Optional[dict[str, Any]] = None
 
 
 class MazeRunner:
@@ -88,6 +90,7 @@ class MazeRunner:
         action_prefix: str = "maze",
         motion_targets: MotionTargetResolver | None = None,
         pose_tracker: TaskPoseTracker | None = None,
+        goal_verifier: GoalVerifier | None = None,
     ) -> None:
         self.client = client
         self.params = params
@@ -99,6 +102,7 @@ class MazeRunner:
         self.action_prefix = action_prefix
         self.motion_targets = motion_targets
         self.pose_tracker = pose_tracker
+        self.goal_verifier = goal_verifier
         self._action_index = 0
 
     def run_step(
@@ -187,7 +191,11 @@ class MazeRunner:
             right_mm=int(telemetry["right_mm"]),
         )
 
-        if goal is not None and goal(self.maze, telemetry):
+        if (
+            goal is not None
+            and self.goal_verifier is None
+            and goal(self.maze, telemetry)
+        ):
             emit("maze_update", self.maze.to_dict())
             emit(
                 "step.goal_reached",
@@ -298,6 +306,9 @@ class MazeRunner:
             if callable(close_subscription):
                 close_subscription()
         emit("done", done)
+        verification_action_id = action_id
+        verification_result = done
+        verification_pose = None
         evidence_result = dict(done)
         if completion_telemetry is not None:
             emit(
@@ -367,6 +378,13 @@ class MazeRunner:
                 )
                 tracked = recovery_result["tracked"]
                 evidence_payload = tracked.decision.to_dict()
+                if recovery_result["status"] == "accepted":
+                    verification_action_id = str(
+                        recovery_result["action_id"]
+                    )
+                    verification_result = dict(
+                        recovery_result["result"]
+                    )
                 if recovery_result["status"] != "accepted":
                     error_code = str(
                         recovery_result.get("error_code")
@@ -394,10 +412,16 @@ class MazeRunner:
                         reliable_pose=tracked.pose.to_dict(),
                         error_code=error_code,
                     )
+            verification_pose = tracked.pose.to_dict()
             self.maze.apply_completed_action(action)
             reliable_pose = self.pose_tracker.accept_action(
                 action
             ).to_dict()
+            verification_pose = {
+                **(verification_pose or {}),
+                "grid_cell": reliable_pose.get("grid_cell"),
+                "heading": reliable_pose.get("heading"),
+            }
             emit("pose.committed", reliable_pose)
         else:
             self.maze.apply_completed_action(action)
@@ -410,16 +434,61 @@ class MazeRunner:
                 tune_event = self.tuner.apply(motion_report)
                 emit("param_change", tune_event)
         emit("maze_update", self.maze.to_dict())
-        outcome = (
-            "goal_reached"
-            if goal is not None and goal(self.maze, done)
-            else "continue"
+        goal_verification = None
+        error_code = None
+        goal_candidate = (
+            goal is not None
+            and goal(self.maze, verification_result)
         )
+        if goal_candidate and self.goal_verifier is not None:
+            decision = self.goal_verifier.verify(
+                GoalVerificationInput(
+                    logical_cell=self.maze.position,
+                    last_action_id=verification_action_id,
+                    last_result=verification_result,
+                    reliable_pose=(
+                        verification_pose or reliable_pose
+                    ),
+                    unresolved_faults=(),
+                )
+            )
+            goal_verification = decision.to_dict()
+            emit("goal.verification", goal_verification)
+            if decision.verified:
+                outcome = "goal_verified"
+            else:
+                outcome = "unsafe"
+                error_code = (
+                    decision.code or "GOAL_VERIFICATION_FAILED"
+                )
+                emit(
+                    "step.goal_unverified",
+                    {
+                        "action_id": verification_action_id,
+                        "error_code": error_code,
+                        "verification": goal_verification,
+                    },
+                    legacy_log=False,
+                )
+        elif goal_candidate:
+            outcome = "goal_reached"
+        else:
+            outcome = "continue"
         emit(
             f"step.{outcome}",
             {
                 "action_id": action_id,
                 "position": list(self.maze.position),
+                **(
+                    {"verification": goal_verification}
+                    if goal_verification is not None
+                    else {}
+                ),
+                **(
+                    {"error_code": error_code}
+                    if error_code is not None
+                    else {}
+                ),
             },
             legacy_log=False,
         )
@@ -436,6 +505,8 @@ class MazeRunner:
             events=tuple(events),
             evidence=evidence_payload,
             reliable_pose=reliable_pose,
+            error_code=error_code,
+            goal_verification=goal_verification,
         )
 
     def _next_action_id(self) -> str:
@@ -615,6 +686,8 @@ class MazeRunner:
                     "status": "accepted",
                     "tracked": current,
                     "error_code": None,
+                    "action_id": recovery_action_id,
+                    "result": result,
                 }
             if current.decision.status == "unsafe":
                 return {

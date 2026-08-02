@@ -6,6 +6,7 @@ from rdk_maze_tuner.core.maze_definition import (
     StartPose,
     WallSegment,
 )
+from rdk_maze_tuner.core.goal_verifier import GoalVerifier
 from rdk_maze_tuner.core.maze_map import Direction, MazeMap, PlannedAction
 from rdk_maze_tuner.core.maze_planner import MazePlanner
 from rdk_maze_tuner.core.maze_runner import MazeRunner
@@ -727,6 +728,47 @@ def test_runner_executes_bounded_recovery_then_commits_original_cell_once():
     assert recovery["recovery"] is True
     assert recovery["parent_action_id"] == client.executed[0]["action_id"]
     assert recovery["speed"] <= params.get("motor.base_speed") * 0.5
+
+
+def test_new_goal_run_emits_only_physically_verified_goal_event():
+    runner, _client, maze = evidence_runner(
+        result={
+            "type": "done",
+            "name": "move_cell",
+            "success": True,
+            "duration_ms": 1000,
+            "enc_left": 1350,
+            "enc_right": 1350,
+            "front_mm": 225,
+            "left_mm": 225,
+            "right_mm": 225,
+            "imu_available": True,
+            "imu_yaw_deg": 0,
+        }
+    )
+    runner.goal_verifier = GoalVerifier(
+        goal={
+            "type": "map_goal",
+            "cell": [0, 0],
+            "source_map_version": maze.map_version_id,
+            "source_map_digest": maze.map_digest,
+        },
+        map_version_id=maze.map_version_id,
+        map_digest=maze.map_digest,
+        cell_width_mm=maze.cell_width_mm,
+        cell_height_mm=maze.cell_height_mm,
+        config=ArrivalVerificationConfig(),
+    )
+
+    result = runner.run_step(
+        goal=lambda current, _telemetry: current.position == (0, 0)
+    )
+    event_types = [event["type"] for event in result.events]
+
+    assert result.outcome == "goal_verified"
+    assert result.goal_verification["verified"] is True
+    assert "step.goal_verified" in event_types
+    assert "step.goal_reached" not in event_types
 
 
 def test_runner_stops_after_two_recoveries_without_advancing_grid():

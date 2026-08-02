@@ -818,7 +818,7 @@ class TaskOrchestrator:
                 return
             if result.outcome == "stopped" or control.stop_requested():
                 return
-            if result.outcome == "goal_reached":
+            if result.outcome == "goal_verified":
                 self._finish_success(task_id, run_id, reason="goal_reached")
                 return
             if result.outcome == "exhausted":
@@ -1076,7 +1076,7 @@ class TaskOrchestrator:
     ) -> Callable[[Any, Mapping[str, Any]], bool]:
         with self._condition:
             goal = dict(self._task_locked(task_id).goal)
-        if goal["type"] == "cell":
+        if goal["type"] in {"cell", "map_goal"}:
             cell = tuple(goal["cell"])
             return lambda maze, _telemetry: maze.position == cell
         return lambda _maze, _telemetry: False
@@ -1468,6 +1468,9 @@ def _step_snapshot(result: MazeStepResult) -> dict[str, Any]:
         "evidence": _json_ready(result.evidence),
         "reliable_pose": _json_ready(result.reliable_pose),
         "error_code": result.error_code,
+        "goal_verification": _json_ready(
+            result.goal_verification
+        ),
     }
 
 

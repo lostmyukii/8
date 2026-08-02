@@ -128,7 +128,12 @@ def step_result(outcome, *, error_code=None):
 
 class ScriptedRunner:
     def __init__(self, outcomes):
-        self.outcomes = deque(outcomes)
+        self.outcomes = deque(
+            "goal_verified"
+            if outcome == "goal_reached"
+            else outcome
+            for outcome in outcomes
+        )
         self.calls = 0
 
     def run_step(self, *, control, goal, event_sink):
@@ -177,7 +182,21 @@ class RouteEventRunner:
                 },
             }
         )
-        return step_result("goal_reached")
+        return step_result("goal_verified")
+
+
+class LegacyGoalThenUnsafeRunner:
+    def __init__(self):
+        self.calls = 0
+
+    def run_step(self, *, control, goal, event_sink):
+        self.calls += 1
+        if self.calls == 1:
+            return step_result("goal_reached")
+        return step_result(
+            "unsafe",
+            error_code="MOTION_EVIDENCE_UNSAFE",
+        )
 
 
 def make_orchestrator(
@@ -263,6 +282,50 @@ def test_orchestrator_runs_to_goal_and_persists_structured_events(tmp_path):
     assert row["status"] == "COMPLETED"
     assert row["started_at_utc"] is not None
     assert row["ended_at_utc"] is not None
+
+
+def test_orchestrator_completes_only_after_goal_verified_outcome(tmp_path):
+    _database, events, _adapter, orchestrator = make_orchestrator(
+        tmp_path,
+        [ScriptedRunner(["goal_verified"])],
+    )
+    ready = create_ready_task(orchestrator)
+
+    orchestrator.start(ready["task_id"])
+    completed = orchestrator.wait_for_state(
+        ready["task_id"],
+        {TaskStatus.COMPLETED},
+        timeout_s=1.0,
+    )
+
+    completion = next(
+        event
+        for event in events.list_events(ready["run_id"])
+        if event["type"] == "task.completed"
+    )
+    assert completed["status"] == "COMPLETED"
+    assert completion["payload"]["reason"] == "goal_reached"
+
+
+def test_legacy_logical_goal_outcome_cannot_complete_a_new_run(tmp_path):
+    _database, events, _adapter, orchestrator = make_orchestrator(
+        tmp_path,
+        [LegacyGoalThenUnsafeRunner()],
+    )
+    ready = create_ready_task(orchestrator)
+
+    orchestrator.start(ready["task_id"])
+    failed = orchestrator.wait_for_state(
+        ready["task_id"],
+        {TaskStatus.ERROR},
+        timeout_s=1.0,
+    )
+
+    assert failed["status"] == "ERROR"
+    assert all(
+        event["type"] != "task.completed"
+        for event in events.list_events(ready["run_id"])
+    )
 
 
 def test_orchestrator_persists_route_planned_as_runner_event(tmp_path):

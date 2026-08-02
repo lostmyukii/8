@@ -156,6 +156,36 @@ def test_conflicting_raw_metrics_are_rejected(tmp_path):
         service.record_raw_metrics("run-score-1", changed)
 
 
+def test_unverified_logical_arrival_receives_no_completion_score(tmp_path):
+    database, service = make_service(tmp_path)
+    store = EventStore(
+        database=database,
+        runs_dir=tmp_path / "runs",
+        monotonic_ns=iter(range(1_000_000, 1_000_100)).__next__,
+    )
+    store.append(
+        run_id="run-score-1",
+        event_type="step.goal_reached",
+        source="maze_runner",
+        payload={"position": [4, 0]},
+    )
+    store.append(
+        run_id="run-score-1",
+        event_type="task.completed",
+        source="task_orchestrator",
+        payload={"reason": "goal_reached"},
+    )
+
+    metrics = service.derive_raw_metrics("run-score-1", store)
+    raw = service.record_raw_metrics("run-score-1", metrics)
+    score = service.score_run("run-score-1")
+
+    assert metrics["completed"] is False
+    assert metrics["goal_reached"] is False
+    assert raw["metrics"]["goal_reached"] is False
+    assert score["breakdown"]["completion_goal"]["score"] == 0.0
+
+
 def test_physical_raw_metrics_are_derived_without_inventing_missing_values(
     tmp_path,
 ):

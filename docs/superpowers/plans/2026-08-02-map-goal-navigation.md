@@ -146,7 +146,23 @@ Commit：
 feat: resolve automatic goals from immutable maps
 ```
 
-实施记录在执行 Task 1 时写入本节。
+**Task 1 实施记录（2026-08-02）：**
+
+- RED：`.venv/bin/python -m pytest rdk_maze_tuner/tests/test_map_goal_resolver.py -q`
+  在收集阶段失败，报错
+  `ModuleNotFoundError: No module named 'rdk_maze_tuner.platform.map_goal_resolver'`。
+- 目标测试：同一命令实现后 `8 passed in 0.03s`。
+- Python 语法：`.venv/bin/python -m compileall -q rdk_maze_tuner simulation`
+  通过。
+- Python 完整回归：`.venv/bin/python -m pytest rdk_maze_tuner/tests -q`
+  为 `339 passed in 5.45s`。
+- Dashboard 语法：`api.js`、`state.js`、`render.js`、`controls.js`、
+  `replay.js` 全部通过 `node --check`。
+- PlatformIO：`/Users/yukii/.platformio/penv/bin/pio run -d esp32_firmware`
+  成功；RAM 6.9%（22744/327680 bytes），Flash 24.2%
+  （317041/1310720 bytes）。
+- 边界：本 Task 只新增不可变地图终点解析和纯逻辑最短路，未修改
+  Webots 控制、固件行为或生产部署；未执行服务器仿真和真车验收。
 
 ### Task 2：把终点权威接入任务、API 和运行快照
 

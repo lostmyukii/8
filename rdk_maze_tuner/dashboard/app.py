@@ -56,6 +56,7 @@ from rdk_maze_tuner.platform.modes import (
     SimulationModeAdapter,
 )
 from rdk_maze_tuner.platform.map_repository import MapRepository
+from rdk_maze_tuner.platform.map_goal_resolver import MapGoalResolver
 from rdk_maze_tuner.platform.physical_profile_repository import (
     PhysicalProfileRepository,
 )
@@ -145,6 +146,12 @@ def create_app(
         database=resolved_database,
         artifacts_dir=platform_config.artifacts_dir,
     )
+    resolved_goal_resolver = (
+        task_orchestrator.map_goal_resolver
+        if task_orchestrator is not None
+        and task_orchestrator.map_goal_resolver is not None
+        else MapGoalResolver(map_provider=resolved_maps.get_version)
+    )
     resolved_physical_profiles = (
         physical_profile_repository
         or PhysicalProfileRepository(database=resolved_database)
@@ -230,9 +237,12 @@ def create_app(
             runner_factory=runner_factory,
             run_finalizer=run_finalizer,
             physical_profile_repository=resolved_physical_profiles,
+            map_goal_resolver=resolved_goal_resolver,
         )
     else:
         resolved_tasks = task_orchestrator
+        if resolved_tasks.map_goal_resolver is None:
+            resolved_tasks.map_goal_resolver = resolved_goal_resolver
         if resolved_tasks.run_finalizer is None:
             resolved_tasks.run_finalizer = run_finalizer
     dashboard_state.attach_task_orchestrator(resolved_tasks)
@@ -254,6 +264,7 @@ def create_app(
     app.state.runtime = runtime
     app.state.task_orchestrator = resolved_tasks
     app.state.map_repository = resolved_maps
+    app.state.map_goal_resolver = resolved_goal_resolver
     app.state.physical_profile_repository = (
         resolved_physical_profiles
     )

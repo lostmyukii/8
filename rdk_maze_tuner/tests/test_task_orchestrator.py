@@ -184,6 +184,7 @@ def make_orchestrator(tmp_path, runners, *, run_finalizer=None):
 
 def create_ready_task(orchestrator):
     task = orchestrator.create_task(
+        run_kind="exploration_complete",
         mode="simulation",
         map_version="map-v1",
         param_version="param-v1",
@@ -240,6 +241,7 @@ def test_simulation_task_defaults_profile_and_run_freezes_exact_snapshot(
         [ScriptedRunner(["goal_reached"])],
     )
     created = orchestrator.create_task(
+        run_kind="exploration_complete",
         mode="simulation",
         map_version="map-v1",
         param_version="param-v1",
@@ -298,6 +300,7 @@ def test_unsafe_physical_map_stays_at_preflight_without_creating_run(
         },
     }
     created = orchestrator.create_task(
+        run_kind="exploration_complete",
         mode="simulation",
         map_version="unsafe-v1",
         param_version="param-v1",
@@ -582,6 +585,7 @@ def test_deterministic_sim_engine_is_rejected_for_physical_task(tmp_path):
     )
     try:
         task = orchestrator.create_task(
+            run_kind="exploration_complete",
             mode="simulation",
             map_version="map-v1",
             param_version="param-v1",
@@ -662,6 +666,7 @@ def test_task_api_uses_control_lease_but_estop_remains_shared(tmp_path):
         denied = viewer.post(
             "/api/tasks",
             json={
+                "run_kind": "exploration_complete",
                 "mode": "simulation",
                 "map_version": "map-v1",
                 "param_version": "param-v1",
@@ -672,6 +677,7 @@ def test_task_api_uses_control_lease_but_estop_remains_shared(tmp_path):
         created = holder.post(
             "/api/tasks",
             json={
+                "run_kind": "exploration_complete",
                 "mode": "simulation",
                 "map_version": "map-v1",
                 "param_version": "param-v1",
@@ -738,6 +744,7 @@ def test_legacy_commands_respect_active_task_command_ownership(tmp_path):
         created = holder.post(
             "/api/tasks",
             json={
+                "run_kind": "exploration_complete",
                 "mode": "simulation",
                 "map_version": "map-v1",
                 "param_version": "param-v1",

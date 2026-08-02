@@ -15,6 +15,10 @@ from rdk_maze_tuner.core.maze_runner import MazeStepResult
 
 from .database import Database
 from .event_store import EventStore
+from .map_goal_resolver import (
+    MapGoalResolutionError,
+    MapGoalResolver,
+)
 from .modes import ModeAdapter
 from .physical_profile_repository import (
     PhysicalProfileNotFoundError,
@@ -42,6 +46,16 @@ class TaskConflictError(TaskError):
 
 class TaskValidationError(TaskError):
     """Raised when a task definition is invalid."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "TASK_VALIDATION_ERROR",
+    ) -> None:
+        super().__init__(f"{code}: {message}")
+        self.code = code
+        self.message = message
 
 
 class TaskOperationError(TaskError):
@@ -86,6 +100,7 @@ class TaskControl:
 @dataclass
 class TaskRecord:
     task_id: str
+    run_kind: str
     mode: str
     map_version: str
     param_version: str
@@ -134,6 +149,7 @@ class TaskOrchestrator:
         physical_profile_repository: (
             PhysicalProfileRepository | None
         ) = None,
+        map_goal_resolver: MapGoalResolver | None = None,
     ) -> None:
         self.database = database
         self.event_store = event_store
@@ -151,6 +167,7 @@ class TaskOrchestrator:
             physical_profile_repository
             or PhysicalProfileRepository(database=database)
         )
+        self.map_goal_resolver = map_goal_resolver
         self.physical_profile_repository.sync_from_yaml()
         self._condition = threading.Condition(threading.RLock())
         self._tasks: dict[str, TaskRecord] = {}
@@ -159,10 +176,11 @@ class TaskOrchestrator:
     def create_task(
         self,
         *,
+        run_kind: str = "auto_to_map_goal",
         mode: str,
         map_version: str,
         param_version: str,
-        goal: Mapping[str, Any],
+        goal: Mapping[str, Any] | None = None,
         max_steps: int = 500,
         created_by_user_id: str | None = None,
         physical_profile_id: str | None = None,
@@ -170,9 +188,33 @@ class TaskOrchestrator:
         mode = str(mode)
         if mode not in self.adapters:
             raise TaskValidationError(f"unsupported task mode: {mode}")
+        run_kind = _normalize_run_kind(run_kind)
         map_version = _required_text(map_version, "map_version")
         param_version = _required_text(param_version, "param_version")
-        normalized_goal = _normalize_goal(goal)
+        if run_kind == "auto_to_map_goal":
+            if goal is not None:
+                raise TaskValidationError(
+                    "automatic tasks cannot override the map-owned goal",
+                    code="AUTO_GOAL_OVERRIDE_FORBIDDEN",
+                )
+            if self.map_goal_resolver is None:
+                raise TaskValidationError(
+                    "automatic task goal resolver is unavailable",
+                    code="MAP_GOAL_RESOLVER_UNAVAILABLE",
+                )
+            try:
+                normalized_goal = self.map_goal_resolver.resolve(
+                    map_version
+                ).to_dict()
+            except MapGoalResolutionError as exc:
+                raise TaskValidationError(
+                    exc.message,
+                    code=exc.code,
+                ) from exc
+        else:
+            normalized_goal = _normalize_goal(
+                goal or {"type": "exploration_complete"}
+            )
         physical_profile = self._resolve_task_profile(
             mode=mode,
             physical_profile_id=physical_profile_id,
@@ -190,6 +232,7 @@ class TaskOrchestrator:
                 raise TaskConflictError(f"duplicate task_id: {task_id}")
             task = TaskRecord(
                 task_id=task_id,
+                run_kind=run_kind,
                 mode=mode,
                 map_version=map_version,
                 param_version=param_version,
@@ -222,18 +265,7 @@ class TaskOrchestrator:
             self._emit_locked(
                 task,
                 "task.created",
-                {
-                    "mode": mode,
-                    "map_version": map_version,
-                    "param_version": param_version,
-                    "goal": normalized_goal,
-                    "max_steps": max_steps,
-                    "physical_profile_id": task.physical_profile_id,
-                    "physical_profile_digest": (
-                        task.physical_profile_digest
-                    ),
-                    "random_seed": task.random_seed,
-                },
+                _task_definition_snapshot(task),
             )
             return self._snapshot_locked(task)
 
@@ -1012,6 +1044,7 @@ class TaskOrchestrator:
         metadata = json.dumps(
             {
                 "task_id": task.task_id,
+                "run_kind": task.run_kind,
                 "map_version": task.map_version,
                 "param_version": task.param_version,
                 "goal": task.goal,
@@ -1066,6 +1099,21 @@ class TaskOrchestrator:
                     task.controller_version,
                     task.webots_version,
                 ),
+            )
+        created_event = next(
+            (
+                event
+                for event in task.events
+                if event["type"] == "task.created"
+            ),
+            None,
+        )
+        if created_event is not None:
+            self.event_store.append(
+                run_id=run_id,
+                event_type="task.created",
+                source=created_event["source"],
+                payload=created_event["payload"],
             )
 
     def _mark_run_started_locked(self, task: TaskRecord) -> None:
@@ -1188,6 +1236,7 @@ class TaskOrchestrator:
             "task_id": task.task_id,
             "run_id": task.run_id,
             "last_run_id": task.last_run_id,
+            "run_kind": task.run_kind,
             "mode": task.mode,
             "map_version": task.map_version,
             "param_version": task.param_version,
@@ -1298,6 +1347,29 @@ def _normalize_goal(goal: Mapping[str, Any]) -> dict[str, Any]:
     raise TaskValidationError(
         "goal.type must be cell or exploration_complete"
     )
+
+
+def _normalize_run_kind(run_kind: Any) -> str:
+    normalized = str(run_kind or "").strip()
+    if normalized not in {"auto_to_map_goal", "exploration_complete"}:
+        raise TaskValidationError(
+            "run_kind must be auto_to_map_goal or exploration_complete"
+        )
+    return normalized
+
+
+def _task_definition_snapshot(task: TaskRecord) -> dict[str, Any]:
+    return {
+        "run_kind": task.run_kind,
+        "mode": task.mode,
+        "map_version": task.map_version,
+        "param_version": task.param_version,
+        "goal": _json_ready(task.goal),
+        "max_steps": task.max_steps,
+        "physical_profile_id": task.physical_profile_id,
+        "physical_profile_digest": task.physical_profile_digest,
+        "random_seed": task.random_seed,
+    }
 
 
 def _required_text(value: Any, name: str) -> str:

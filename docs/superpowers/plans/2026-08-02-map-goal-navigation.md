@@ -220,7 +220,31 @@ Commit：
 fix: enforce map-owned automatic task goals
 ```
 
-实施记录在执行 Task 2 时写入本节。
+**Task 2 实施记录（2026-08-02）：**
+
+- RED：目标命令得到 `19 failed, 18 passed in 1.42s`；关键失败为
+  `TaskOrchestrator.__init__()` 不接受 `map_goal_resolver`、
+  `create_task()` 不接受 `run_kind`，且 Dashboard state 没有共享解析器。
+- 目标测试：实现后同一命令为 `37 passed in 1.79s`。
+- 自动任务默认 `run_kind=auto_to_map_goal`，不接收客户端目标；当前
+  Task12 v2 fixture 解析并冻结 `(4,0)`，路径长度为 8 格。
+- `task.created`、任务 snapshot、run metadata 和运行 JSONL 保存同一
+  `map_goal` 快照；地图新版本创建新任务，不修改旧任务快照。
+- 客户端提交自动任务 `goal` 返回
+  `400 AUTO_GOAL_OVERRIDE_FORBIDDEN`，且失败前后不新增 task、run 或 event。
+- 旧生命周期测试已显式声明 `run_kind=exploration_complete`，不再依赖网站
+  默认语义。
+- Python 语法：`.venv/bin/python -m compileall -q rdk_maze_tuner simulation`
+  通过。
+- Python 完整回归：`.venv/bin/python -m pytest rdk_maze_tuner/tests -q`
+  为 `345 passed in 5.45s`。
+- Dashboard 语法：`api.js`、`state.js`、`render.js`、`controls.js`、
+  `replay.js` 全部通过 `node --check`。
+- PlatformIO：`/Users/yukii/.platformio/penv/bin/pio run -d esp32_firmware`
+  成功；RAM 6.9%（22744/327680 bytes），Flash 24.2%
+  （317041/1310720 bytes）。
+- 边界：本 Task 未修改页面目标显示、规划器、Webots 控制或固件行为；
+  未部署服务器，也未执行仿真运行和真车验收。
 
 ### Task 3：页面自动显示并锁定地图终点
 

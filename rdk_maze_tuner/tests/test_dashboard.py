@@ -13,6 +13,7 @@ from rdk_maze_tuner.dashboard.state import DashboardState
 from rdk_maze_tuner.core.param_manager import ParamManager
 from rdk_maze_tuner.platform.auth import AuthService
 from rdk_maze_tuner.platform.database import Database
+from rdk_maze_tuner.platform.map_goal_resolver import MapGoalResolver
 
 
 PARAMS_PATH = Path("rdk_maze_tuner/config/params.yaml")
@@ -211,6 +212,16 @@ def test_dashboard_health_is_public_and_minimal(tmp_path):
         "ok": True,
         "service": "maze-dashboard",
     }
+
+
+def test_dashboard_builds_one_shared_map_goal_resolver(tmp_path):
+    app = make_test_app(tmp_path)
+
+    assert isinstance(app.state.map_goal_resolver, MapGoalResolver)
+    assert (
+        app.state.task_orchestrator.map_goal_resolver
+        is app.state.map_goal_resolver
+    )
 
 
 def test_dashboard_state_contains_params_map_and_logs(tmp_path):

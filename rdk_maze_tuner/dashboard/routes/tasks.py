@@ -38,6 +38,10 @@ def create_tasks_router(
         body = await _json_body(request)
         result = _task_call(
             lambda: orchestrator.create_task(
+                run_kind=body.get(
+                    "run_kind",
+                    "auto_to_map_goal",
+                ),
                 mode=body.get("mode"),
                 map_version=body.get("map_version"),
                 param_version=body.get("param_version"),
@@ -159,7 +163,10 @@ def _task_call(callback: Callable[[], dict[str, Any]]) -> dict[str, Any]:
     try:
         return callback()
     except TaskValidationError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=400,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
     except TaskNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except TaskConflictError as exc:

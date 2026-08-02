@@ -50,7 +50,7 @@ def test_database_initializes_required_tables_and_is_repeatable(tmp_path):
     first_versions = database.initialize()
     second_versions = database.initialize()
 
-    assert first_versions == (1, 2, 3)
+    assert first_versions == (1, 2, 3, 4)
     assert second_versions == ()
 
     with database.connection() as connection:
@@ -69,6 +69,7 @@ def test_database_initializes_required_tables_and_is_repeatable(tmp_path):
         (1, "001_initial.sql"),
         (2, "002_auth_audit.sql"),
         (3, "003_physical_profiles.sql"),
+        (4, "004_agent_assets.sql"),
     ]
 
 

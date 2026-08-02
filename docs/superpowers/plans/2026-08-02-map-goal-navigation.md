@@ -1184,7 +1184,39 @@ Commit：
 feat: run map-goal navigation on authenticated rdk agent
 ```
 
-实施记录在执行 Task 11 时写入本节。
+实施记录（2026-08-02）：
+
+- RED 以 4 个收集错误证明 `rdk_maze_tuner.agent`、设备令牌和不可变参数
+  仓库尚不存在；实现后目标测试为 23 passed。
+- 新增设备专用高熵令牌：明文只在注册/轮换响应中出现，SQLite 只保存
+  SHA-256 摘要；令牌绑定 device ID，可轮换、吊销，且与网站 Argon2
+  session 完全分离。未认证 WSS 在握手阶段以 4401 拒绝。
+- 新增参数版本仓库和数据库不可变触发器。版本保存父版本、完整快照、差异、来源、
+  证据、审批和上下文；`safety.*`、`tof.front_stop_mm`、
+  `tof.danger_stop_mm`、`motor.max_pwm` 以及
+  `arrival_verification.*` 均拒绝自动来源修改。
+- RDK Agent 只主动连接验证系统 CA、域名和证书有效期的 WSS；配置中不存在关闭
+  TLS 校验的选项。信道使用指数退避、WebSocket ping、任务级 heartbeat 和
+  `message_id` 幂等去重。
+- 网站只发送 `task.prepare/start/pause/stop/estop/clear_estop`。任务信封冻结
+  地图版本、地图摘要、主终点、参数版本、参数摘要、完整参数快照和完成阈值；
+  通道明确拒绝 `left_pwm/right_pwm` 等低层电机字段。
+- Agent 再次校验地图内容摘要和主终点后，在 RDK 本地创建
+  `DeviceSession`、`GoalDirectedPlanner`、`TaskPoseTracker`（内含
+  `MotionEvidenceGate`）、`GoalVerifier` 和带有限修正的 `MazeRunner`。
+  公网服务器只等待任务级事件和终态，不参与逐动作闭环。
+- 无硬件集成使用真实 `SerialClient → DeviceSession` fake serial 链完成
+  `(0,4)·N → (4,0)`，确认后台最大并发 reader 为 1；本地 WSS 切换真实
+  模式、预检、任务信封、完成镜像也已通过。断云、断串口、动作超时、前方过近和
+  急停均先请求本地停车，再进入 LOST/ERROR/ESTOP；重连不自动续跑。
+- 新增非 root systemd 单元、安装脚本和 0600 环境文件模板。令牌和串口路径只从
+  RDK 本机环境读取，仓库中没有真实值。
+- 固定完整回归为 449 passed；PlatformIO 构建成功（RAM 22,800 /
+  327,680，Flash 319,257 / 1,310,720）；五个固定 JavaScript 文件、
+  `bash -n deploy/rdk/install_agent.sh` 和 `git diff --check` 均通过。
+- 物理硬件门保持关闭：本 Task 没有连接 RDK X3、ESP32、三向 ToF 或 IMU，
+  没有烧录，也没有把无硬件结果宣称为真车可用。真车路径、网络、时间同步和传感器
+  方向仍需用户在现场重新确认。
 
 ---
 

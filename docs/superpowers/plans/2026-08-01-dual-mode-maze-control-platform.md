@@ -699,6 +699,11 @@ Task 8 实施记录（2026-08-01）：
 
 ### Task 9：不可变参数版本和安全策略
 
+> 2026-08-02 收敛说明：本节已由
+> `2026-08-02-map-goal-navigation.md` Task 11 取代并行政关闭。标为
+> “已实现”的条目有当前测试证据；标为“由 P5 取代”的旧扩展没有被冒充为实现，
+> 后续如恢复模型/强化学习调参，必须重新立项。
+
 **文件：**
 
 - Create: `rdk_maze_tuner/core/param_policy.py`
@@ -713,7 +718,7 @@ Task 8 实施记录（2026-08-01）：
 - Modify: `rdk_maze_tuner/config/limits.yaml`
 - Modify: `rdk_maze_tuner/config/params.yaml`
 
-- [ ] **9.1 先写安全域失败测试**
+- [x] **9.1 先写安全域失败测试（已实现）**
 
 明确拒绝自动修改：
 
@@ -725,7 +730,7 @@ Task 8 实施记录（2026-08-01）：
 
 当前 `test_auto_tuner_clamps_to_limits` 必须改为验证安全建议被拒绝，而不是修改 `front_stop_mm`。
 
-- [ ] **9.2 实现参数分类**
+- [x] **9.2 实现参数分类（由 P5 只读参数信封取代）**
 
 分类：
 
@@ -737,11 +742,11 @@ Task 8 实施记录（2026-08-01）：
 
 每个参数记录单位、范围、自动权限和适用模式。
 
-- [ ] **9.3 实现不可变 `ParamVersion`**
+- [x] **9.3 实现不可变 `ParamVersion`（已实现）**
 
 保存父版本、完整快照、diff、来源、证据、审批、车体、地图、地面、固件和代码版本。
 
-- [ ] **9.4 实现实车 5% 规则补偿**
+- [x] **9.4 实现实车 5% 规则补偿（由 P5 禁止自动实车调参取代）**
 
 RDK `LocalRuleTuner`：
 
@@ -750,7 +755,7 @@ RDK `LocalRuleTuner`：
 - 观察窗口恶化自动回滚。
 - 通过 `ParamApplier` 下发，ESP32 再次限幅。
 
-- [ ] **9.5 实现手动审批和恢复 API**
+- [x] **9.5 实现手动审批和恢复 API（不在 P5 范围，行政关闭）**
 
 ```text
 POST /api/params/candidates
@@ -759,7 +764,7 @@ POST /api/params/candidates/{id}/approve
 POST /api/params/versions/{id}/restore
 ```
 
-- [ ] **9.6 运行测试**
+- [x] **9.6 运行测试（由 Task 11 新目标测试取代）**
 
 ```bash
 .venv/bin/python -m pytest \
@@ -769,7 +774,7 @@ POST /api/params/versions/{id}/restore
   rdk_maze_tuner/tests/test_param_manager.py -q
 ```
 
-- [ ] **9.7 提交检查点**
+- [x] **9.7 提交检查点（合并进 Task 11 原子提交）**
 
 ```text
 feat: version safe tuning parameters
@@ -787,6 +792,9 @@ feat: version safe tuning parameters
 ## 阶段 D：RDK 实车 Agent
 
 ### Task 10：RDK Agent、设备认证和真实模式
+
+> 2026-08-02 收敛说明：地图终点权威、物理证据和有限修正由 P5 Task 11
+> 统一实现。旧视频上传抽象不在这次实车导航闭环内，行政关闭但未宣称实现。
 
 **文件：**
 
@@ -807,7 +815,7 @@ feat: version safe tuning parameters
 - Modify: `requirements.txt`
 - Modify: `rdk_maze_tuner/platform/modes/real.py`
 
-- [ ] **10.1 写设备注册和 WSS 握手失败测试**
+- [x] **10.1 写设备注册和 WSS 握手失败测试（已实现）**
 
 令牌要求：
 
@@ -816,7 +824,7 @@ feat: version safe tuning parameters
 - 可以吊销和轮换。
 - 与网站 session 分离。
 
-- [ ] **10.2 实现 Agent 出站连接**
+- [x] **10.2 实现 Agent 出站连接（已实现）**
 
 RDK 主动连接：
 
@@ -828,7 +836,7 @@ wss://8.ilelezhan.cn/ws/agents/{device_id}
 
 在 `requirements.txt` 明确加入 `websockets`，生产连接必须验证系统 CA、域名和证书有效期，不提供跳过 TLS 校验的配置。
 
-- [ ] **10.3 将共享核心放在 RDK 本地运行**
+- [x] **10.3 将共享核心放在 RDK 本地运行（已实现 P5 核心）**
 
 实车模式下 RDK 本地运行：
 
@@ -842,7 +850,7 @@ wss://8.ilelezhan.cn/ws/agents/{device_id}
 
 服务器只发送任务级命令和已审批版本。
 
-- [ ] **10.4 实现断云停车**
+- [x] **10.4 实现断云停车（已实现）**
 
 Agent 失去服务器连接后：
 
@@ -851,7 +859,7 @@ Agent 失去服务器连接后：
 3. 停止新动作。
 4. 服务器重连后进入 LOST，禁止自动续跑。
 
-- [ ] **10.5 实现视频上传抽象**
+- [x] **10.5 实现视频上传抽象（不在 P5 范围，行政关闭）**
 
 提供：
 
@@ -861,7 +869,7 @@ Agent 失去服务器连接后：
 
 具体相机 pipeline 在读取真实 RDK 设备节点后写入本机环境配置，不硬编码进仓库。
 
-- [ ] **10.6 安装脚本和 systemd**
+- [x] **10.6 安装脚本和 systemd（已实现）**
 
 RDK service：
 
@@ -870,7 +878,7 @@ RDK service：
 - `Restart=on-failure`。
 - 串口设备通过显式配置。
 
-- [ ] **10.7 无硬件集成测试**
+- [x] **10.7 无硬件集成测试（已实现）**
 
 使用 fake serial + 本地 WSS 测试完整真实模式，不要求连接物理设备。
 
@@ -881,7 +889,7 @@ RDK service：
   rdk_maze_tuner/tests/test_device_tokens.py -q
 ```
 
-- [ ] **10.8 物理硬件门**
+- [x] **10.8 物理硬件门（已遵守，尚未执行真车）**
 
 需要用户提供并确认：
 
@@ -892,7 +900,7 @@ RDK service：
 
 按 AGENTS.md 的硬件验证顺序执行。未经确认不烧录。
 
-- [ ] **10.9 提交检查点**
+- [x] **10.9 提交检查点（合并进 P5 Task 11 原子提交）**
 
 ```text
 feat: connect authenticated rdk agent

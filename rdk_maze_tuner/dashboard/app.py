@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -33,6 +34,7 @@ from rdk_maze_tuner.dashboard.routes.auth import (
     AuthContext,
     create_auth_router,
 )
+from rdk_maze_tuner.dashboard.routes.agents import create_agents_router
 from rdk_maze_tuner.dashboard.routes.control import (
     CONTROL_LEASE_HEADER_NAME,
     create_control_router,
@@ -50,6 +52,7 @@ from rdk_maze_tuner.platform.auth import (
     LoginRateLimiter,
     SessionPrincipal,
 )
+from rdk_maze_tuner.platform.agent_registry import AgentRegistry
 from rdk_maze_tuner.platform.config import PlatformConfig
 from rdk_maze_tuner.platform.control_lease import (
     ControlLeaseService,
@@ -57,6 +60,7 @@ from rdk_maze_tuner.platform.control_lease import (
 )
 from rdk_maze_tuner.platform.database import Database
 from rdk_maze_tuner.platform.event_store import EventStore
+from rdk_maze_tuner.platform.device_tokens import DeviceTokenService
 from rdk_maze_tuner.platform.modes import (
     ModeAdapterError,
     RealModeAdapter,
@@ -66,6 +70,9 @@ from rdk_maze_tuner.platform.map_repository import MapRepository
 from rdk_maze_tuner.platform.map_goal_resolver import MapGoalResolver
 from rdk_maze_tuner.platform.physical_profile_repository import (
     PhysicalProfileRepository,
+)
+from rdk_maze_tuner.platform.param_version_repository import (
+    ParamVersionRepository,
 )
 from rdk_maze_tuner.platform.replay import (
     ReplayService,
@@ -124,6 +131,11 @@ def create_app(
     scoring_service: Optional[ScoringService] = None,
     replay_service: Optional[ReplayService] = None,
     retention_manager: Optional[RetentionManager] = None,
+    agent_registry: Optional[AgentRegistry] = None,
+    device_token_service: Optional[DeviceTokenService] = None,
+    param_version_repository: Optional[
+        ParamVersionRepository
+    ] = None,
     client_mode: Optional[str] = None,
 ) -> FastAPI:
     resolved_database = (
@@ -146,6 +158,19 @@ def create_app(
         rate_limiter=login_rate_limiter or LoginRateLimiter(),
     )
     params = ParamManager(params_path=params_path, limits_path=limits_path)
+    resolved_param_versions = (
+        param_version_repository
+        or ParamVersionRepository(database=resolved_database)
+    )
+    resolved_param_versions.ensure(
+        version_id="1",
+        snapshot=params.snapshot()["params"],
+    )
+    resolved_agents = agent_registry or AgentRegistry()
+    resolved_device_tokens = (
+        device_token_service
+        or DeviceTokenService(database=resolved_database)
+    )
     action_result_timeout_s = max(
         float(params.get("safety.action_timeout_ms")) / 1_000.0 + 3.0,
         3.0,
@@ -229,15 +254,22 @@ def create_app(
         )
         adapters = {
             "simulation": simulation_adapter,
-            "real": RealModeAdapter(),
+            "real": RealModeAdapter(
+                registry=resolved_agents,
+                device_id=(
+                    os.environ.get("MAZE_RDK_DEVICE_ID") or None
+                ),
+                map_provider=resolved_maps.get_version,
+                param_provider=resolved_param_versions.get,
+            ),
         }
 
         def runner_factory(task: TaskRecord) -> MazeRunner:
             adapter = adapters[task.mode]
+            if isinstance(adapter, RealModeAdapter):
+                return adapter.prepare_task(task)
             if not isinstance(adapter, SimulationModeAdapter):
-                raise RuntimeError(
-                    "real task execution requires the future RDK X3 Agent"
-                )
+                raise RuntimeError("unsupported task adapter")
             map_version = resolved_maps.get_version(task.map_version)
             maze = MazeMap.from_definition(
                 map_version.definition,
@@ -323,11 +355,22 @@ def create_app(
     app.state.physical_profile_repository = (
         resolved_physical_profiles
     )
+    app.state.param_version_repository = resolved_param_versions
+    app.state.agent_registry = resolved_agents
+    app.state.device_token_service = resolved_device_tokens
     app.state.scoring_service = resolved_scoring
     app.state.replay_service = resolved_replay
     app.state.retention_manager = resolved_retention
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     app.include_router(create_auth_router(auth_context))
+    app.include_router(
+        create_agents_router(
+            auth_context,
+            resolved_leases,
+            resolved_device_tokens,
+            resolved_agents,
+        )
+    )
     app.include_router(create_control_router(auth_context, resolved_leases))
     app.include_router(
         create_tasks_router(auth_context, resolved_leases, resolved_tasks)

@@ -1,0 +1,23 @@
+[Unit]
+Description=RDK X3 Maze Agent
+After=network-online.target time-sync.target
+Wants=network-online.target time-sync.target
+
+[Service]
+Type=simple
+User=maze-agent
+Group=maze-agent
+WorkingDirectory=/opt/maze-agent/current
+EnvironmentFile=/etc/maze-agent/maze-agent.env
+ExecStart=/opt/maze-agent/venv/bin/python -m rdk_maze_tuner.agent.main
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/maze-agent
+SupplementaryGroups=dialout
+
+[Install]
+WantedBy=multi-user.target

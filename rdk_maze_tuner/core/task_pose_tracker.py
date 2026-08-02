@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Any, Mapping
 
 from .map_sensor_conflict import (
@@ -410,6 +410,64 @@ class TaskPoseTracker:
         )
         self.last_result = tracked
         self.last_fusion_input = fusion_input
+        return tracked
+
+    def complete_recovery(
+        self,
+        *,
+        recovery_action_id: str,
+        original_action: PlannedAction,
+        result: Mapping[str, Any],
+        original_motion_target: MotionTarget,
+        recovery_attempts: int,
+    ) -> TrackedMotionResult:
+        """Re-evaluate the original grid action from its saved baseline."""
+        baseline = self.last_baseline
+        if baseline is None:
+            raise TaskPoseTrackerError(
+                ACTION_NOT_ACTIVE,
+                "recovery has no original action baseline",
+            )
+        if result.get("action_id") != recovery_action_id:
+            raise TaskPoseTrackerError(
+                ACTION_RESULT_MISMATCH,
+                "recovery result action_id does not match recovery action",
+            )
+        if result.get("name") not in {
+            "nudge_forward",
+            "align_heading",
+        }:
+            raise TaskPoseTrackerError(
+                ACTION_RESULT_MISMATCH,
+                "recovery result name is not a bounded recovery action",
+            )
+        original_result = {
+            **result,
+            "action_id": baseline.action_id,
+            "name": original_action.name,
+        }
+        tracked = self.complete_action(
+            action_id=baseline.action_id,
+            action=original_action,
+            result=original_result,
+            motion_target=original_motion_target,
+        )
+        evidence = replace(
+            tracked.evidence,
+            recovery_attempts=int(recovery_attempts),
+        )
+        decision = tracked.decision
+        if (
+            result.get("type") == "done"
+            and result.get("success") is not False
+        ):
+            decision = self.gate.evaluate(evidence)
+        tracked = replace(
+            tracked,
+            evidence=evidence,
+            decision=decision,
+        )
+        self.last_result = tracked
         return tracked
 
     def accept_action(self, action: PlannedAction) -> PoseEstimate:

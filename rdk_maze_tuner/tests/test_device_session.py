@@ -8,6 +8,7 @@ import pytest
 from rdk_maze_tuner.core.device_session import (
     DeviceDisconnectedError,
     DeviceSession,
+    DeviceSessionError,
 )
 from rdk_maze_tuner.core.serial_client import SerialClient, SerialClientError
 
@@ -258,5 +259,51 @@ def test_cached_ready_is_not_reused_after_disconnect():
     try:
         with pytest.raises(DeviceDisconnectedError):
             session.wait_ready(timeout_s=0.01)
+    finally:
+        session.close()
+
+
+def test_recovery_fields_are_written_and_completed_action_id_cannot_be_reused():
+    stream = InteractiveSerial()
+    session = DeviceSession(SerialClient(stream, timeout_s=0.5))
+    session.start()
+    result = {}
+
+    def run_action():
+        result["value"] = session.execute_action(
+            action_id="a-0001-recovery-1",
+            name="align_heading",
+            speed=0.09,
+            target_ticks=60,
+            recovery=True,
+            direction="left",
+            parent_action_id="a-0001",
+        )
+
+    action_thread = threading.Thread(target=run_action)
+    action_thread.start()
+    deadline = time.monotonic() + 0.5
+    while stream.pending_action is None and time.monotonic() < deadline:
+        time.sleep(0.001)
+    assert stream.pending_action["recovery"] is True
+    assert stream.pending_action["direction"] == "left"
+    assert stream.pending_action["parent_action_id"] == "a-0001"
+    stream.complete_action()
+    action_thread.join(timeout=1.0)
+
+    try:
+        assert result["value"]["action_id"] == "a-0001-recovery-1"
+        writes_before_reuse = len(stream.writes)
+        with pytest.raises(DeviceSessionError, match="already used"):
+            session.execute_action(
+                action_id="a-0001-recovery-1",
+                name="align_heading",
+                speed=0.09,
+                target_ticks=60,
+                recovery=True,
+                direction="left",
+                parent_action_id="a-0001",
+            )
+        assert len(stream.writes) == writes_before_reuse
     finally:
         session.close()

@@ -23,5 +23,6 @@ void sendTelemetry(
     int pwmRight,
     uint32_t paramVersion);
 void sendDone(Stream &stream, const MotionResult &result, const SensorSnapshot &sensors);
+void sendMotionError(Stream &stream, const MotionResult &result, const SensorSnapshot &sensors);
 void sendError(Stream &stream, const String &actionId, const char *code, const char *message, const SensorSnapshot &sensors);
 }  // namespace Protocol

@@ -1,5 +1,7 @@
 #include "motion_controller.h"
 
+#include <math.h>
+
 #include "encoder.h"
 #include "motor.h"
 
@@ -14,9 +16,51 @@ bool MotionController::start(const ActionCommand &command, const RuntimeParams &
     error = "motion controller is busy";
     return false;
   }
+  if (command.action_id.length() == 0) {
+    error = "action_id is required";
+    motors.stop();
+    return false;
+  }
+  if (command.action_id == lastActionId_) {
+    error = "action_id was already used";
+    motors.stop();
+    return false;
+  }
   if (command.name != "move_cell" && command.name != "turn_left" && command.name != "turn_right" &&
-      command.name != "turn_back") {
+      command.name != "turn_back" && command.name != "nudge_forward" && command.name != "align_heading") {
     error = "unsupported action";
+    motors.stop();
+    return false;
+  }
+  bool recoveryAction = command.name == "nudge_forward" || command.name == "align_heading";
+  if (recoveryAction != command.recovery) {
+    error = "recovery flag does not match action";
+    motors.stop();
+    return false;
+  }
+  if (!isfinite(command.speed) || command.speed <= 0.0f) {
+    error = "action speed must be finite and positive";
+    motors.stop();
+    return false;
+  }
+  if (command.name == "nudge_forward" &&
+      (command.target_ticks <= 0 || command.target_ticks > params.cell_ticks / 4 ||
+       command.speed > params.base_speed * 0.5f)) {
+    error = "nudge_forward exceeds bounded recovery limits";
+    motors.stop();
+    return false;
+  }
+  if (command.name == "align_heading" &&
+      (command.direction != "left" && command.direction != "right")) {
+    error = "align_heading direction must be left or right";
+    motors.stop();
+    return false;
+  }
+  if (command.name == "align_heading" &&
+      (command.target_ticks <= 0 || command.target_ticks > params.turn_90_ticks / 6 ||
+       command.speed > params.turn_speed * 0.5f)) {
+    error = "align_heading exceeds bounded recovery limits";
+    motors.stop();
     return false;
   }
 
@@ -29,9 +73,11 @@ bool MotionController::start(const ActionCommand &command, const RuntimeParams &
   startLeft_ = Encoder::leftCount();
   startRight_ = Encoder::rightCount();
 
-  if (command.name == "move_cell") {
+  lastActionId_ = command.action_id;
+  if (command.name == "move_cell" || command.name == "nudge_forward") {
     state_ = MotionState::MOVING_CELL;
-  } else if (command.name == "turn_left") {
+  } else if (command.name == "turn_left" ||
+             (command.name == "align_heading" && command.direction == "left")) {
     state_ = MotionState::TURNING_LEFT;
   } else if (command.name == "turn_right") {
     state_ = MotionState::TURNING_RIGHT;
@@ -123,6 +169,9 @@ MotionResult MotionController::finish(bool success, const char *errorCode, const
   result.duration_ms = nowMs - actionStartMs_;
   result.enc_left = Encoder::leftCount();
   result.enc_right = Encoder::rightCount();
+  result.recovery = active_.recovery;
+  result.direction = active_.direction;
+  result.parent_action_id = active_.parent_action_id;
   state_ = success ? MotionState::IDLE : MotionState::ERROR;
   if (!success) {
     motors.stop();
@@ -131,7 +180,7 @@ MotionResult MotionController::finish(bool success, const char *errorCode, const
 }
 
 long MotionController::targetTicksFor(const ActionCommand &command, const RuntimeParams &params) const {
-  if (command.name == "move_cell") {
+  if (command.name == "move_cell" || command.name == "nudge_forward") {
     return params.cell_ticks;
   }
   if (command.name == "turn_back") {
@@ -141,8 +190,10 @@ long MotionController::targetTicksFor(const ActionCommand &command, const Runtim
 }
 
 void MotionController::driveForState(const RuntimeParams &params) {
-  int leftPwm = Params::speedToPwm(active_.speed > 0 ? active_.speed : params.base_speed, params, true);
-  int rightPwm = Params::speedToPwm(active_.speed > 0 ? active_.speed : params.base_speed, params, false);
+  float fallbackSpeed =
+      state_ == MotionState::MOVING_CELL ? params.base_speed : params.turn_speed;
+  int leftPwm = Params::speedToPwm(active_.speed > 0 ? active_.speed : fallbackSpeed, params, true);
+  int rightPwm = Params::speedToPwm(active_.speed > 0 ? active_.speed : fallbackSpeed, params, false);
 
   if (state_ == MotionState::MOVING_CELL) {
     motors.drive(leftPwm, rightPwm);
@@ -152,4 +203,3 @@ void MotionController::driveForState(const RuntimeParams &params) {
     motors.drive(leftPwm, -rightPwm);
   }
 }
-

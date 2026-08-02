@@ -864,7 +864,44 @@ Commit：
 feat: add bounded motion recovery actions
 ```
 
-实施记录在执行 Task 8 时写入本节。
+实施记录：
+
+- RED：
+  - 新增统一恢复协议、修正目标、单 reader 路由、每格两次上限、确定性仿真和
+    物理控制器本地限幅测试。
+  - 首次目标测试为 `10 failed, 72 passed`；失败集中在现有
+    `build_action` 不接受恢复字段、目标解析器没有恢复目标、Runner 仍返回
+    `recovery_required`，以及两个仿真执行端不认识恢复动作。
+- 实现：
+  - `build_action`、`SerialClient` 和 `DeviceSession` 支持可选
+    `recovery/direction/parent_action_id`，正常动作帧保持原样；会话内已使用的
+    `action_id` 不得再次发送，结果仍由单一 reader 按自己的 ID 路由。
+  - `MotionTargetResolver` 将 `nudge_forward` 限制为当前格长的 25%，将
+    `align_heading` 限制为 `left/right` 和 15°，速度分别不超过当前直行/转向
+    速度的 50%。
+  - `MazeRunner` 为每次修正生成独立 ID，最多执行两次；`TaskPoseTracker`
+    始终从原动作基线重算累计位移、航向与墙面证据。只有新证据通过后才把原计划
+    动作提交一次；耗尽上限返回 `MOTION_RECOVERY_FAILED`。
+  - 确定性引擎、Webots 物理控制器和 ESP32 固件统一实现
+    `nudge_forward/align_heading` 名称与方向语义，并在电机启动前再次检查
+    距离、角度和速度上限。ESP32 非法命令保持停车。
+- 验证：
+  - 目标测试：`82 passed`。
+  - 完整 Python 回归：`405 passed`；`compileall`、五个 Dashboard JavaScript
+    语法检查和 `git diff --check` 均通过。
+  - PlatformIO 仅编译通过，RAM `22800 / 327680`（7.0%），Flash
+    `319257 / 1310720`（24.4%）；未上传、未连接或驱动真实小车。
+  - 隔离服务器 P1–P4：`physical-20260802T132207Z-8c3ddb89` 为 PASS，
+    Webots `R2025a`；P1 水平漂移 `0.0 m`、最大倾角 `0.004738°`，P2 三向
+    ToF 最大误差和重复离散均为 `0.0 mm`，四个 P3/P4 场景实时倍率为
+    `0.9456516166248197`–`0.9530780321445567`。
+  - 报告归档为
+    `/home/ubuntu/maze-acceptance/task8/physical-20260802T132207Z-8c3ddb89/report.json`，
+    SHA-256 为
+    `8ac051eda279febb2b47bb5bd91d1ff9adf4bfede8c06c9dea41ce0dd2222020`。
+    验收使用隔离复制的当前工作树并排除 `.git`，因此报告
+    `source_commit=unknown`；这证明 Task 8 源码的 P1–P4 物理链未回归，
+    不冒充正式发布或 P5 终点验收。
 
 ---
 

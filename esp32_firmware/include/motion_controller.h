@@ -20,6 +20,9 @@ struct ActionCommand {
   String name;
   float speed = 0.0f;
   long target_ticks = 0;
+  bool recovery = false;
+  String direction;
+  String parent_action_id;
 };
 
 struct MotionResult {
@@ -32,6 +35,9 @@ struct MotionResult {
   uint32_t duration_ms = 0;
   long enc_left = 0;
   long enc_right = 0;
+  bool recovery = false;
+  String direction;
+  String parent_action_id;
 };
 
 class MotionController {
@@ -55,7 +61,7 @@ class MotionController {
   uint32_t actionStartMs_ = 0;
   long startLeft_ = 0;
   long startRight_ = 0;
+  String lastActionId_;
 };
 
 extern MotionController motionController;
-

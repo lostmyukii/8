@@ -49,6 +49,29 @@ def test_builders_create_documented_messages():
     }
 
 
+def test_recovery_action_keeps_explicit_parent_and_direction_fields():
+    assert build_action(
+        seq=10,
+        action_id="a-0001-recovery-1",
+        name="align_heading",
+        speed=0.09,
+        target_ticks=60,
+        recovery=True,
+        direction="left",
+        parent_action_id="a-0001",
+    ) == {
+        "type": "action",
+        "seq": 10,
+        "action_id": "a-0001-recovery-1",
+        "name": "align_heading",
+        "speed": 0.09,
+        "target_ticks": 60,
+        "recovery": True,
+        "direction": "left",
+        "parent_action_id": "a-0001",
+    }
+
+
 def test_simulation_truth_is_strictly_evaluation_only():
     truth = extract_simulation_truth(
         {

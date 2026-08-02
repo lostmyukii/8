@@ -103,6 +103,32 @@ void sendDone(Stream &stream, const MotionResult &result, const SensorSnapshot &
   doc["front_mm"] = sensors.front_mm;
   doc["left_mm"] = sensors.left_mm;
   doc["right_mm"] = sensors.right_mm;
+  if (result.recovery) {
+    doc["recovery"] = true;
+    doc["direction"] = result.direction;
+    doc["parent_action_id"] = result.parent_action_id;
+  }
+  writeJsonLine(stream, doc);
+}
+
+void sendMotionError(Stream &stream, const MotionResult &result, const SensorSnapshot &sensors) {
+  StaticJsonDocument<512> doc;
+  doc["type"] = "error";
+  doc["action_id"] = result.action_id;
+  doc["name"] = result.name;
+  doc["code"] = result.error_code;
+  doc["message"] = result.message;
+  doc["duration_ms"] = result.duration_ms;
+  doc["enc_left"] = result.enc_left;
+  doc["enc_right"] = result.enc_right;
+  doc["front_mm"] = sensors.front_mm;
+  doc["left_mm"] = sensors.left_mm;
+  doc["right_mm"] = sensors.right_mm;
+  if (result.recovery) {
+    doc["recovery"] = true;
+    doc["direction"] = result.direction;
+    doc["parent_action_id"] = result.parent_action_id;
+  }
   writeJsonLine(stream, doc);
 }
 

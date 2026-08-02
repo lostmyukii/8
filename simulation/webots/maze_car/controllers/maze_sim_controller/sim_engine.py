@@ -52,13 +52,21 @@ class PendingAction:
     start_heading: int
     target_heading: int
     angle_delta: float
+    recovery: bool = False
+    direction: str | None = None
+    parent_action_id: str | None = None
 
 
 class MazeSimEngine:
     """Implements the newline-JSON behavior expected from the ESP32."""
 
     def __init__(self) -> None:
-        self.params: dict[str, Any] = {}
+        self.params: dict[str, Any] = {
+            "base_speed": 0.25,
+            "turn_speed": 0.18,
+            "cell_ticks": 1350,
+            "turn_90_ticks": 720,
+        }
         self.param_version = 1
         self.map_definition = default_map_definition()
         self.compiled_map = compile_map(self.map_definition)
@@ -78,6 +86,7 @@ class MazeSimEngine:
         self.enc_left = 0
         self.enc_right = 0
         self.pending: PendingAction | None = None
+        self.used_action_ids: set[str] = set()
         self.last_now_ms = 0
         self.last_telemetry_ms = -100
 
@@ -182,10 +191,16 @@ class MazeSimEngine:
             action = self.pending
             self.cell = action.target_cell
             self.heading_index = action.target_heading
-            if action.name == "move_cell":
+            if action.name in {"move_cell", "nudge_forward"}:
                 self.enc_left += action.target_ticks
                 self.enc_right += action.target_ticks
-            elif action.name == "turn_left":
+            elif (
+                action.name == "turn_left"
+                or (
+                    action.name == "align_heading"
+                    and action.direction == "left"
+                )
+            ):
                 self.enc_left -= action.target_ticks
                 self.enc_right += action.target_ticks
             elif action.name == "turn_right":
@@ -206,6 +221,15 @@ class MazeSimEngine:
                     "enc_left": self.enc_left,
                     "enc_right": self.enc_right,
                     "simulated": True,
+                    **(
+                        {
+                            "recovery": True,
+                            "direction": action.direction,
+                            "parent_action_id": action.parent_action_id,
+                        }
+                        if action.recovery
+                        else {}
+                    ),
                 }
             )
 
@@ -330,9 +354,15 @@ class MazeSimEngine:
         ticks = int(
             round(self.pending.target_ticks * self._motion_progress())
         )
-        if self.pending.name == "move_cell":
+        if self.pending.name in {"move_cell", "nudge_forward"}:
             return self.enc_left + ticks, self.enc_right + ticks
-        if self.pending.name == "turn_left":
+        if (
+            self.pending.name == "turn_left"
+            or (
+                self.pending.name == "align_heading"
+                and self.pending.direction == "left"
+            )
+        ):
             return self.enc_left - ticks, self.enc_right + ticks
         return self.enc_left + ticks, self.enc_right - ticks
 
@@ -349,8 +379,23 @@ class MazeSimEngine:
         name = str(message.get("name") or "")
         if not action_id:
             return [self._ack(seq, ok=False, message="action_id is required")]
-        if name not in {"move_cell", "turn_left", "turn_right", "turn_back"}:
+        if name not in {
+            "move_cell",
+            "turn_left",
+            "turn_right",
+            "turn_back",
+            "nudge_forward",
+            "align_heading",
+        }:
             return [self._ack(seq, ok=False, message=f"unsupported action: {name}")]
+        if action_id in self.used_action_ids:
+            return [
+                self._ack(
+                    seq,
+                    ok=False,
+                    message=f"action_id was already used: {action_id}",
+                )
+            ]
         if self.estopped:
             return [self._ack(seq, ok=False, message="simulation is in ESTOP")]
         if self.state == "PAUSED":
@@ -358,7 +403,41 @@ class MazeSimEngine:
         if self.pending is not None:
             return [self._ack(seq, ok=False, message="another action is active")]
 
-        target_ticks = max(1, int(message.get("target_ticks") or 1))
+        recovery = bool(message.get("recovery"))
+        direction = (
+            str(message.get("direction"))
+            if message.get("direction") is not None
+            else None
+        )
+        parent_action_id = (
+            str(message.get("parent_action_id"))
+            if message.get("parent_action_id") is not None
+            else None
+        )
+        try:
+            target_ticks = max(
+                1,
+                int(message.get("target_ticks") or 1),
+            )
+            speed = float(message.get("speed") or 0.0)
+        except (TypeError, ValueError):
+            return [
+                self._ack(
+                    seq,
+                    ok=False,
+                    message="speed and target_ticks must be numeric",
+                )
+            ]
+        if name in {"nudge_forward", "align_heading"}:
+            invalid = self._validate_recovery(
+                name=name,
+                recovery=recovery,
+                direction=direction,
+                speed=speed,
+                target_ticks=target_ticks,
+            )
+            if invalid is not None:
+                return [self._ack(seq, ok=False, message=invalid)]
         target_cell = self.cell
         target_heading = self.heading_index
         angle_delta = 0.0
@@ -381,6 +460,8 @@ class MazeSimEngine:
             dx, dy = DELTAS[self.heading]
             target_cell = (self.cell[0] + dx, self.cell[1] + dy)
             self.state = "MOVING_CELL"
+        elif name == "nudge_forward":
+            self.state = "MOVING_CELL"
         elif name == "turn_left":
             target_heading = (self.heading_index - 1) % 4
             angle_delta = math.pi / 2
@@ -391,12 +472,28 @@ class MazeSimEngine:
             angle_delta = -math.pi / 2
             duration_ms = 420
             self.state = "TURNING_RIGHT"
-        else:
+        elif name == "turn_back":
             target_heading = (self.heading_index + 2) % 4
             angle_delta = math.pi
             duration_ms = 650
             self.state = "TURNING_BACK"
+        else:
+            angle_delta = (
+                math.pi * target_ticks / self.params["turn_90_ticks"] / 2.0
+            )
+            if direction == "right":
+                angle_delta = -angle_delta
+            duration_ms = max(
+                120,
+                int(round(420 * target_ticks / self.params["turn_90_ticks"])),
+            )
+            self.state = (
+                "TURNING_LEFT"
+                if direction == "left"
+                else "TURNING_RIGHT"
+            )
 
+        self.used_action_ids.add(action_id)
         self.pending = PendingAction(
             action_id=action_id,
             name=name,
@@ -408,8 +505,38 @@ class MazeSimEngine:
             start_heading=self.heading_index,
             target_heading=target_heading,
             angle_delta=angle_delta,
+            recovery=recovery,
+            direction=direction,
+            parent_action_id=parent_action_id,
         )
         return [self._ack(seq), self.telemetry_message()]
+
+    def _validate_recovery(
+        self,
+        *,
+        name: str,
+        recovery: bool,
+        direction: str | None,
+        speed: float,
+        target_ticks: int,
+    ) -> str | None:
+        if not recovery:
+            return "bounded recovery action requires recovery=true"
+        if not math.isfinite(speed) or speed <= 0:
+            return "recovery speed must be finite and positive"
+        if name == "nudge_forward":
+            if target_ticks > int(self.params["cell_ticks"]) // 4:
+                return "nudge_forward target exceeds bounded quarter cell"
+            if speed > float(self.params["base_speed"]) * 0.5:
+                return "nudge_forward speed exceeds bounded half speed"
+            return None
+        if direction not in {"left", "right"}:
+            return "align_heading direction must be left or right"
+        if target_ticks > int(self.params["turn_90_ticks"]) // 6:
+            return "align_heading target exceeds bounded 15 degrees"
+        if speed > float(self.params["turn_speed"]) * 0.5:
+            return "align_heading speed exceeds bounded half speed"
+        return None
 
     def _cancel_pending(self, code: str, message: str) -> list[dict[str, Any]]:
         if self.pending is None:

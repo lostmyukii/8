@@ -10,6 +10,7 @@ from .logger import JsonlLogger
 from .maze_map import MazeMap, PlannedAction
 from .auto_tuner import AutoTuner
 from .motion_analyzer import MotionAnalyzer, MotionReport
+from .motion_evidence import MOTION_RECOVERY_FAILED
 from .motion_targets import MotionTarget, MotionTargetResolver
 from .param_manager import ParamManager
 from .pose_types import TruthPose, evaluate_pose
@@ -357,38 +358,42 @@ class MazeRunner:
                 emit=emit,
             )
             if tracked.decision.status != "accepted":
-                outcome = (
-                    "recovery_required"
-                    if tracked.decision.status == "recoverable"
-                    else "unsafe"
-                )
-                error_code = (
-                    "MOTION_RECOVERY_REQUIRED"
-                    if outcome == "recovery_required"
-                    else tracked.decision.code
-                    or "MOTION_EVIDENCE_UNSAFE"
-                )
-                emit(
-                    f"step.{outcome}",
-                    {
-                        "action_id": action_id,
-                        "error_code": error_code,
-                    },
-                    legacy_log=False,
-                )
-                return MazeStepResult(
-                    action=action,
+                recovery_result = self._run_motion_recovery(
                     action_id=action_id,
-                    telemetry=telemetry,
-                    done=done,
-                    map_text=self.maze.render_ascii(),
+                    action=action,
                     motion_target=motion_target,
-                    outcome=outcome,
-                    events=tuple(events),
-                    evidence=evidence_payload,
-                    reliable_pose=tracked.pose.to_dict(),
-                    error_code=error_code,
+                    tracked=tracked,
+                    emit=emit,
                 )
+                tracked = recovery_result["tracked"]
+                evidence_payload = tracked.decision.to_dict()
+                if recovery_result["status"] != "accepted":
+                    error_code = str(
+                        recovery_result.get("error_code")
+                        or tracked.decision.code
+                        or MOTION_RECOVERY_FAILED
+                    )
+                    emit(
+                        "step.unsafe",
+                        {
+                            "action_id": action_id,
+                            "error_code": error_code,
+                        },
+                        legacy_log=False,
+                    )
+                    return MazeStepResult(
+                        action=action,
+                        action_id=action_id,
+                        telemetry=telemetry,
+                        done=done,
+                        map_text=self.maze.render_ascii(),
+                        motion_target=motion_target,
+                        outcome="unsafe",
+                        events=tuple(events),
+                        evidence=evidence_payload,
+                        reliable_pose=tracked.pose.to_dict(),
+                        error_code=error_code,
+                    )
             self.maze.apply_completed_action(action)
             reliable_pose = self.pose_tracker.accept_action(
                 action
@@ -452,6 +457,179 @@ class MazeRunner:
         else:
             speed = float(self.params.get("motor.turn_speed"))
         return speed, target
+
+    def _run_motion_recovery(
+        self,
+        *,
+        action_id: str,
+        action: PlannedAction,
+        motion_target: MotionTarget,
+        tracked,
+        emit,
+    ) -> dict[str, Any]:
+        assert self.pose_tracker is not None
+        resolver = (
+            self.motion_targets
+            if self.motion_targets is not None
+            else MotionTargetResolver.from_params(self.params)
+        )
+        maximum = int(
+            self.pose_tracker.gate.config.max_recovery_attempts_per_cell
+        )
+        current = tracked
+        for attempt in range(1, maximum + 1):
+            if current.decision.status != "recoverable":
+                return {
+                    "status": current.decision.status,
+                    "tracked": current,
+                    "error_code": current.decision.code,
+                }
+            suggestion = current.decision.recovery
+            if suggestion is None:
+                return {
+                    "status": "unsafe",
+                    "tracked": current,
+                    "error_code": MOTION_RECOVERY_FAILED,
+                }
+            target = resolver.resolve_recovery(
+                suggestion,
+                self.maze,
+            )
+            speed = resolver.recovery_speed(
+                target,
+                base_speed=float(
+                    self.params.get("motor.base_speed")
+                ),
+                turn_speed=float(
+                    self.params.get("motor.turn_speed")
+                ),
+            )
+            recovery_action_id = (
+                f"{action_id}-recovery-{attempt}"
+            )
+            emit(
+                "motion.recovery.started",
+                {
+                    "original_action_id": action_id,
+                    "recovery_action_id": recovery_action_id,
+                    "attempt": attempt,
+                    "max_attempts": maximum,
+                    "speed": speed,
+                    **target.to_dict(),
+                },
+            )
+            subscription = self._subscribe_completion_telemetry()
+            completion = None
+            try:
+                result = self.client.execute_action(
+                    action_id=recovery_action_id,
+                    name=target.action_name,
+                    speed=speed,
+                    target_ticks=target.target_ticks,
+                    recovery=True,
+                    direction=target.direction,
+                    parent_action_id=action_id,
+                )
+                completion = self._wait_completion_telemetry(
+                    subscription,
+                    result,
+                )
+            except Exception as exc:
+                emit(
+                    "motion.recovery.failed",
+                    {
+                        "original_action_id": action_id,
+                        "recovery_action_id": recovery_action_id,
+                        "attempt": attempt,
+                        "error": str(exc),
+                    },
+                )
+                return {
+                    "status": "unsafe",
+                    "tracked": current,
+                    "error_code": MOTION_RECOVERY_FAILED,
+                }
+            finally:
+                close_subscription = getattr(
+                    subscription,
+                    "close",
+                    None,
+                )
+                if callable(close_subscription):
+                    close_subscription()
+            emit(
+                "motion.recovery.done",
+                {
+                    "original_action_id": action_id,
+                    "recovery_action_id": recovery_action_id,
+                    "attempt": attempt,
+                    "result": result,
+                },
+            )
+            evidence_result = dict(result)
+            if completion is not None:
+                emit(
+                    "recovery.completion.telemetry",
+                    extract_fusion_telemetry(completion),
+                )
+                evidence_result = {
+                    **completion,
+                    **result,
+                }
+            try:
+                current = self.pose_tracker.complete_recovery(
+                    recovery_action_id=recovery_action_id,
+                    original_action=action,
+                    result=evidence_result,
+                    original_motion_target=motion_target,
+                    recovery_attempts=attempt,
+                )
+            except TaskPoseTrackerError as exc:
+                emit(
+                    "motion.recovery.failed",
+                    {
+                        "original_action_id": action_id,
+                        "recovery_action_id": recovery_action_id,
+                        "attempt": attempt,
+                        "error_code": exc.code,
+                    },
+                )
+                return {
+                    "status": "unsafe",
+                    "tracked": current,
+                    "error_code": exc.code,
+                }
+            emit("pose.updated", current.pose)
+            emit(
+                "motion_evidence",
+                current.decision.to_dict(),
+            )
+            self._emit_truth_evaluation(
+                evidence_result,
+                current.pose,
+                action_id=recovery_action_id,
+                emit=emit,
+            )
+            if current.decision.status == "accepted":
+                return {
+                    "status": "accepted",
+                    "tracked": current,
+                    "error_code": None,
+                }
+            if current.decision.status == "unsafe":
+                return {
+                    "status": "unsafe",
+                    "tracked": current,
+                    "error_code": (
+                        current.decision.code
+                        or MOTION_RECOVERY_FAILED
+                    ),
+                }
+        return {
+            "status": "unsafe",
+            "tracked": current,
+            "error_code": MOTION_RECOVERY_FAILED,
+        }
 
     def _log(self, event_type: str, payload: object) -> None:
         if self.logger is not None:

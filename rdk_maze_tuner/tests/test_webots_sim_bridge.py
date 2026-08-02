@@ -173,3 +173,87 @@ def test_deterministic_engine_connection_hooks_are_noop_and_close_is_safe():
     engine.close()
 
     assert engine.telemetry_message()["state"] == "IDLE"
+
+
+def test_deterministic_engine_supports_bounded_recovery_actions_without_grid_commit():
+    engine = MazeSimEngine()
+    start_cell = engine.cell
+    start_heading = engine.heading
+
+    nudge = engine.handle(
+        {
+            "type": "action",
+            "seq": 10,
+            "action_id": "recovery-nudge",
+            "name": "nudge_forward",
+            "speed": 0.10,
+            "target_ticks": 300,
+            "recovery": True,
+            "parent_action_id": "move-1",
+        },
+        now_ms=0,
+    )
+    assert nudge[0]["ok"] is True
+    nudge_done = next(
+        item
+        for item in engine.tick(now_ms=800)
+        if item["type"] == "done"
+    )
+    assert nudge_done["recovery"] is True
+    assert engine.cell == start_cell
+
+    align = engine.handle(
+        {
+            "type": "action",
+            "seq": 11,
+            "action_id": "recovery-align",
+            "name": "align_heading",
+            "direction": "left",
+            "speed": 0.09,
+            "target_ticks": 60,
+            "recovery": True,
+            "parent_action_id": "move-1",
+        },
+        now_ms=900,
+    )
+    assert align[0]["ok"] is True
+    align_done = next(
+        item
+        for item in engine.tick(now_ms=1400)
+        if item["type"] == "done"
+    )
+    assert align_done["direction"] == "left"
+    assert engine.heading == start_heading
+
+
+def test_deterministic_engine_rejects_unbounded_or_reused_recovery_action():
+    engine = MazeSimEngine()
+    invalid = engine.handle(
+        {
+            "type": "action",
+            "seq": 12,
+            "action_id": "bad-recovery",
+            "name": "align_heading",
+            "direction": "back",
+            "speed": 0.09,
+            "target_ticks": 60,
+            "recovery": True,
+        },
+        now_ms=0,
+    )
+    assert invalid[0]["ok"] is False
+    assert engine.pending is None
+
+    valid = {
+        "type": "action",
+        "seq": 13,
+        "action_id": "once-only",
+        "name": "nudge_forward",
+        "speed": 0.10,
+        "target_ticks": 300,
+        "recovery": True,
+    }
+    assert engine.handle(valid, now_ms=10)[0]["ok"] is True
+    engine.tick(now_ms=800)
+    reused = engine.handle({**valid, "seq": 14}, now_ms=900)
+    assert reused[0]["ok"] is False

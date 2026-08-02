@@ -47,9 +47,16 @@ _PARAM_LIMITS = {
     "angle_tolerance_deg": (0.5, 20.0),
     "settle_speed_rad_s": (0.05, 5.0),
     "slowdown_ticks": (10.0, 2000.0),
+    "cell_ticks": (100.0, 100000.0),
+    "turn_90_ticks": (50.0, 50000.0),
 }
 _INTEGER_PARAMS = frozenset(
-    {"position_tolerance_ticks", "slowdown_ticks"}
+    {
+        "position_tolerance_ticks",
+        "slowdown_ticks",
+        "cell_ticks",
+        "turn_90_ticks",
+    }
 )
 _SAFETY_PARAMS = frozenset(
     {
@@ -99,6 +106,8 @@ class PhysicalMazeEngine:
             "angle_tolerance_deg": 2.0,
             "settle_speed_rad_s": 0.45,
             "slowdown_ticks": 240,
+            "cell_ticks": 1350,
+            "turn_90_ticks": 720,
         }
         self._controller = self._new_controller()
         self._telemetry_provider = self._new_telemetry_provider()
@@ -477,7 +486,7 @@ class PhysicalMazeEngine:
         if speed is None:
             speed = (
                 self.params["base_speed"]
-                if name == "move_cell"
+                if name in {"move_cell", "nudge_forward"}
                 else self.params["turn_speed"]
             )
         try:
@@ -486,6 +495,17 @@ class PhysicalMazeEngine:
                 name=name,
                 target_ticks=int(message.get("target_ticks") or 0),
                 speed=float(speed),
+                recovery=bool(message.get("recovery")),
+                direction=(
+                    str(message.get("direction"))
+                    if message.get("direction") is not None
+                    else None
+                ),
+                parent_action_id=(
+                    str(message.get("parent_action_id"))
+                    if message.get("parent_action_id") is not None
+                    else None
+                ),
             )
             self._controller.start(
                 request,
@@ -493,6 +513,7 @@ class PhysicalMazeEngine:
                 now_ms=now_ms,
             )
         except (ActionRejected, TypeError, ValueError) as exc:
+            self._device.safe_stop()
             return self._ack(seq, ok=False, message=str(exc))
         return self._ack(seq)
 
@@ -516,6 +537,10 @@ class PhysicalMazeEngine:
                 self.params["settle_speed_rad_s"]
             ),
             slowdown_ticks=int(self.params["slowdown_ticks"]),
+            base_speed_limit=float(self.params["base_speed"]),
+            turn_speed_limit=float(self.params["turn_speed"]),
+            cell_target_ticks=int(self.params["cell_ticks"]),
+            turn_90_ticks=int(self.params["turn_90_ticks"]),
         )
         return PhysicalActionController(
             profile=self.profile,

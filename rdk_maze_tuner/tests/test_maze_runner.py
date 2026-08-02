@@ -1,4 +1,5 @@
 import json
+from types import SimpleNamespace
 
 from rdk_maze_tuner.core.maze_definition import (
     MapDefinition,
@@ -8,7 +9,11 @@ from rdk_maze_tuner.core.maze_definition import (
 from rdk_maze_tuner.core.maze_map import Direction, MazeMap, PlannedAction
 from rdk_maze_tuner.core.maze_planner import MazePlanner
 from rdk_maze_tuner.core.maze_runner import MazeRunner
-from rdk_maze_tuner.core.motion_evidence import ArrivalVerificationConfig
+from rdk_maze_tuner.core.motion_evidence import (
+    ArrivalVerificationConfig,
+    MotionEvidenceDecision,
+    RecoverySuggestion,
+)
 from rdk_maze_tuner.core.motion_analyzer import MotionAnalyzer
 from rdk_maze_tuner.core.motion_targets import MotionTargetResolver
 from rdk_maze_tuner.core.auto_tuner import AutoTuner
@@ -138,6 +143,98 @@ class SubscribedEvidenceClient(EvidenceClient):
     def subscribe(self, *, message_types, max_queue):
         assert set(message_types) == {"telemetry"}
         return self.subscription
+
+
+class RecoveryClient:
+    def __init__(self):
+        self.executed = []
+        self._encoders = 0
+
+    def wait_telemetry(self):
+        return {
+            "type": "telemetry",
+            "ts_ms": 0,
+            "enc_left": 0,
+            "enc_right": 0,
+            "front_mm": 500,
+            "left_mm": 100,
+            "right_mm": 100,
+            "imu_available": False,
+        }
+
+    def execute_action(self, **command):
+        self.executed.append(command)
+        self._encoders += command["target_ticks"]
+        return {
+            "type": "done",
+            "action_id": command["action_id"],
+            "name": command["name"],
+            "success": True,
+            "duration_ms": 100,
+            "enc_left": self._encoders,
+            "enc_right": self._encoders,
+        }
+
+
+class ScriptedRecoveryTracker:
+    def __init__(self, recovery_statuses):
+        self.recovery_statuses = list(recovery_statuses)
+        self.recovery_calls = []
+        self.commit_count = 0
+        self.gate = SimpleNamespace(
+            config=ArrivalVerificationConfig(
+                max_recovery_attempts_per_cell=2
+            )
+        )
+        self._pose = SimpleNamespace(
+            to_dict=lambda: {
+                "cell": [0, 0],
+                "heading": "N",
+                "confidence": 0.95,
+            }
+        )
+
+    def estimate(self):
+        return self._pose
+
+    def check_map_conflict(self, _telemetry):
+        return None
+
+    def begin_action(self, **_kwargs):
+        return {"saved": True}
+
+    def complete_action(self, **_kwargs):
+        return self._tracked("recoverable")
+
+    def complete_recovery(self, **kwargs):
+        self.recovery_calls.append(kwargs)
+        return self._tracked(self.recovery_statuses.pop(0))
+
+    def accept_action(self, _action):
+        self.commit_count += 1
+        return self._pose
+
+    def _tracked(self, status):
+        recovery = (
+            RecoverySuggestion(
+                kind="nudge_forward",
+                remaining_distance_mm=40.0,
+                max_distance_mm=62.5,
+            )
+            if status == "recoverable"
+            else None
+        )
+        return SimpleNamespace(
+            decision=MotionEvidenceDecision(
+                status=status,
+                code=None,
+                position_error_ratio=0.12,
+                heading_error_deg=2.0,
+                pose_confidence=0.95,
+                recovery=recovery,
+            ),
+            pose=self._pose,
+        )
 
 
 def evidence_runner(*, result, conflict_required_samples=3):
@@ -452,8 +549,8 @@ def test_runner_updates_pose_before_gate_and_advances_an_accepted_move_once():
     )
 
 
-def test_recoverable_motion_does_not_advance_and_requests_safe_stop():
-    runner, _client, maze = evidence_runner(
+def test_malformed_recovery_result_does_not_advance_and_stops_unsafe():
+    runner, client, maze = evidence_runner(
         result={
             "type": "done",
             "name": "move_cell",
@@ -470,10 +567,11 @@ def test_recoverable_motion_does_not_advance_and_requests_safe_stop():
 
     result = runner.run_step()
 
-    assert result.outcome == "recovery_required"
-    assert result.error_code == "MOTION_RECOVERY_REQUIRED"
+    assert result.outcome == "unsafe"
+    assert result.error_code == "ACTION_RESULT_MISMATCH"
     assert result.evidence["status"] == "recoverable"
     assert maze.position == (0, 1)
+    assert len(client.executed) == 2
 
 
 def test_map_sensor_conflict_blocks_transport_action_and_keeps_logical_pose():
@@ -595,3 +693,69 @@ def test_runner_uses_fresh_subscribed_telemetry_when_done_has_only_encoders():
         event["type"] == "completion.telemetry"
         for event in result.events
     )
+
+
+def test_runner_executes_bounded_recovery_then_commits_original_cell_once():
+    params = ParamManager(
+        params_path=__import__("pathlib").Path(PARAMS),
+        limits_path=__import__("pathlib").Path(LIMITS),
+    )
+    maze = MazeMap(wall_threshold_mm=150)
+    client = RecoveryClient()
+    tracker = ScriptedRecoveryTracker(["accepted"])
+    runner = MazeRunner(
+        client=client,
+        params=params,
+        maze=maze,
+        planner=FixedPlanner(
+            PlannedAction("move_cell", Direction.NORTH)
+        ),
+        pose_tracker=tracker,
+    )
+
+    result = runner.run_step()
+
+    assert result.outcome == "continue"
+    assert maze.position == (0, 1)
+    assert tracker.commit_count == 1
+    assert [item["name"] for item in client.executed] == [
+        "move_cell",
+        "nudge_forward",
+    ]
+    recovery = client.executed[1]
+    assert recovery["action_id"] != client.executed[0]["action_id"]
+    assert recovery["recovery"] is True
+    assert recovery["parent_action_id"] == client.executed[0]["action_id"]
+    assert recovery["speed"] <= params.get("motor.base_speed") * 0.5
+
+
+def test_runner_stops_after_two_recoveries_without_advancing_grid():
+    params = ParamManager(
+        params_path=__import__("pathlib").Path(PARAMS),
+        limits_path=__import__("pathlib").Path(LIMITS),
+    )
+    maze = MazeMap(wall_threshold_mm=150)
+    client = RecoveryClient()
+    tracker = ScriptedRecoveryTracker(
+        ["recoverable", "recoverable"]
+    )
+    runner = MazeRunner(
+        client=client,
+        params=params,
+        maze=maze,
+        planner=FixedPlanner(
+            PlannedAction("move_cell", Direction.NORTH)
+        ),
+        pose_tracker=tracker,
+    )
+
+    result = runner.run_step()
+
+    assert result.outcome == "unsafe"
+    assert result.error_code == "MOTION_RECOVERY_FAILED"
+    assert maze.position == (0, 0)
+    assert tracker.commit_count == 0
+    assert len(client.executed) == 3
+    assert len(
+        {command["action_id"] for command in client.executed}
+    ) == 3

@@ -84,8 +84,18 @@ def build_set_params(*, seq: int, params: Mapping[str, Any]) -> Message:
     return {"type": "set_params", "seq": int(seq), "params": dict(params)}
 
 
-def build_action(*, seq: int, action_id: str, name: str, speed: float, target_ticks: int) -> Message:
-    return {
+def build_action(
+    *,
+    seq: int,
+    action_id: str,
+    name: str,
+    speed: float,
+    target_ticks: int,
+    recovery: bool = False,
+    direction: str | None = None,
+    parent_action_id: str | None = None,
+) -> Message:
+    message: Message = {
         "type": "action",
         "seq": int(seq),
         "action_id": action_id,
@@ -93,6 +103,13 @@ def build_action(*, seq: int, action_id: str, name: str, speed: float, target_ti
         "speed": float(speed),
         "target_ticks": int(target_ticks),
     }
+    if recovery:
+        message["recovery"] = True
+    if direction is not None:
+        message["direction"] = str(direction)
+    if parent_action_id is not None:
+        message["parent_action_id"] = str(parent_action_id)
+    return message
 
 
 def build_stop(*, seq: int) -> Message:

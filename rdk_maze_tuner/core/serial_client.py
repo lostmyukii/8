@@ -55,6 +55,8 @@ class SerialClient:
         self._write_lock = Lock()
         self._reader_lock = Lock()
         self._reader_owner: object | None = None
+        self._action_ids_lock = Lock()
+        self._used_action_ids: set[str] = set()
         self.last_telemetry: Optional[Message] = None
 
     def wait_ready(self, *, timeout_s: Optional[float] = None) -> Message:
@@ -75,12 +77,25 @@ class SerialClient:
         self._send(build_set_params(seq=seq, params=params))
         return self._wait_for_ack(seq)
 
-    def execute_action(self, *, action_id: str, name: str, speed: float, target_ticks: int) -> Message:
+    def execute_action(
+        self,
+        *,
+        action_id: str,
+        name: str,
+        speed: float,
+        target_ticks: int,
+        recovery: bool = False,
+        direction: str | None = None,
+        parent_action_id: str | None = None,
+    ) -> Message:
         _ack, result = self.execute_action_with_ack(
             action_id=action_id,
             name=name,
             speed=speed,
             target_ticks=target_ticks,
+            recovery=recovery,
+            direction=direction,
+            parent_action_id=parent_action_id,
         )
         if result.get("type") == "done":
             if result.get("success") is False:
@@ -90,9 +105,31 @@ class SerialClient:
         detail = result.get("message") or ""
         raise SerialClientError(f"{code}: {detail}".strip())
 
-    def execute_action_with_ack(self, *, action_id: str, name: str, speed: float, target_ticks: int) -> tuple[Message, Message]:
+    def execute_action_with_ack(
+        self,
+        *,
+        action_id: str,
+        name: str,
+        speed: float,
+        target_ticks: int,
+        recovery: bool = False,
+        direction: str | None = None,
+        parent_action_id: str | None = None,
+    ) -> tuple[Message, Message]:
+        self._reserve_action_id(action_id)
         seq = self._next_seq()
-        self._send(build_action(seq=seq, action_id=action_id, name=name, speed=speed, target_ticks=target_ticks))
+        self._send(
+            build_action(
+                seq=seq,
+                action_id=action_id,
+                name=name,
+                speed=speed,
+                target_ticks=target_ticks,
+                recovery=recovery,
+                direction=direction,
+                parent_action_id=parent_action_id,
+            )
+        )
         ack = self._wait_for_ack(seq)
         result = self._wait_for_action_result_message(action_id)
         return ack, result
@@ -199,6 +236,17 @@ class SerialClient:
             code = message.get("code") or "ESP32_ERROR"
             detail = message.get("message") or ""
             raise SerialClientError(f"{code}: {detail}".strip())
+
+    def _reserve_action_id(self, action_id: str) -> None:
+        normalized = str(action_id)
+        if not normalized:
+            raise SerialClientError("action_id is required")
+        with self._action_ids_lock:
+            if normalized in self._used_action_ids:
+                raise SerialClientError(
+                    f"action_id was already used: {normalized}"
+                )
+            self._used_action_ids.add(normalized)
 
 
 def open_serial(port: str, *, baud: int = 115200, timeout_s: float = 0.1) -> SerialLike:

@@ -152,6 +152,7 @@ class DeviceSession:
         self._reader_thread: threading.Thread | None = None
         self._ack_waiters: dict[int, _Pending] = {}
         self._action_waiters: dict[str, _Pending] = {}
+        self._used_action_ids: set[str] = set()
         self._type_waiters: dict[str, list[_Pending]] = {}
         self._subscriptions: dict[int, DeviceSubscription] = {}
         self._next_subscription_id = 0
@@ -270,12 +271,18 @@ class DeviceSession:
         name: str,
         speed: float,
         target_ticks: int,
+        recovery: bool = False,
+        direction: str | None = None,
+        parent_action_id: str | None = None,
     ) -> Message:
         _ack, result = self.execute_action_with_ack(
             action_id=action_id,
             name=name,
             speed=speed,
             target_ticks=target_ticks,
+            recovery=recovery,
+            direction=direction,
+            parent_action_id=parent_action_id,
         )
         if result.get("type") == "done":
             if result.get("success") is False:
@@ -294,6 +301,9 @@ class DeviceSession:
         name: str,
         speed: float,
         target_ticks: int,
+        recovery: bool = False,
+        direction: str | None = None,
+        parent_action_id: str | None = None,
     ) -> tuple[Message, Message]:
         self._ensure_started()
         seq = self.client.next_seq()
@@ -301,10 +311,11 @@ class DeviceSession:
         result_pending = _Pending.create()
         with self._lock:
             self._raise_if_failed_locked()
-            if action_id in self._action_waiters:
+            if action_id in self._used_action_ids:
                 raise DeviceSessionError(
-                    f"action_id is already pending: {action_id}"
+                    f"action_id was already used: {action_id}"
                 )
+            self._used_action_ids.add(action_id)
             self._ack_waiters[seq] = ack_pending
             self._action_waiters[action_id] = result_pending
         try:
@@ -315,6 +326,9 @@ class DeviceSession:
                     name=name,
                     speed=speed,
                     target_ticks=target_ticks,
+                    recovery=recovery,
+                    direction=direction,
+                    parent_action_id=parent_action_id,
                 )
             )
             ack = ack_pending.wait(

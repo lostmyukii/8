@@ -24,6 +24,9 @@ class ActionRequest:
     name: str
     target_ticks: int
     speed: float
+    recovery: bool = False
+    direction: str | None = None
+    parent_action_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -60,6 +63,10 @@ class ActionControlConfig:
     pid_ki: float = 0.005
     pid_kd: float = 0.0
     pid_integral_limit: float = 4.0
+    base_speed_limit: float = 0.25
+    turn_speed_limit: float = 0.18
+    cell_target_ticks: int = 1350
+    turn_90_ticks: int = 720
 
     def __post_init__(self) -> None:
         positive = (
@@ -86,6 +93,10 @@ class ActionControlConfig:
             self.collision_distance_mm,
             self.collision_speed_rad_s,
             self.pid_integral_limit,
+            self.base_speed_limit,
+            self.turn_speed_limit,
+            self.cell_target_ticks,
+            self.turn_90_ticks,
         )
         if any(float(value) <= 0 for value in positive):
             raise ValueError("action control thresholds must be positive")
@@ -140,6 +151,8 @@ _ACTION_STATES = {
     "turn_right": "TURNING_RIGHT",
     "turn_back": "TURNING_BACK",
 }
+_STRAIGHT_ACTIONS = frozenset({"move_cell", "nudge_forward"})
+_RECOVERY_ACTIONS = frozenset({"nudge_forward", "align_heading"})
 
 
 class PhysicalActionController:
@@ -175,6 +188,7 @@ class PhysicalActionController:
         self._last_progress_ms = 0
         self._settled_ticks = 0
         self._wheelspin_range_motion_mm = 0.0
+        self._used_action_ids: set[str] = set()
 
     @property
     def active(self) -> bool:
@@ -203,22 +217,35 @@ class PhysicalActionController:
             raise ActionRejected("estop is latched")
         if self.state != "IDLE" or self._active is not None:
             raise ActionRejected("an action is already active")
-        if request.name not in _ACTION_STATES:
+        if request.name not in set(_ACTION_STATES) | _RECOVERY_ACTIONS:
             raise ActionRejected(f"unsupported action: {request.name}")
         if not request.action_id.strip():
             raise ActionRejected("action_id is required")
+        if request.action_id in self._used_action_ids:
+            raise ActionRejected(
+                f"action_id was already used: {request.action_id}"
+            )
         if not math.isfinite(float(request.speed)) or request.speed <= 0:
             raise ActionRejected("action speed must be finite and positive")
+        self._validate_recovery(request)
         target_ticks = int(request.target_ticks)
         if target_ticks <= 0:
+            if request.recovery:
+                raise ActionRejected(
+                    "bounded recovery target_ticks must be positive"
+                )
             target_ticks = self._default_target_ticks(request.name)
         self._active = ActionRequest(
             action_id=request.action_id,
             name=request.name,
             target_ticks=target_ticks,
             speed=float(request.speed),
+            recovery=bool(request.recovery),
+            direction=request.direction,
+            parent_action_id=request.parent_action_id,
         )
-        self.state = _ACTION_STATES[request.name]
+        self._used_action_ids.add(request.action_id)
+        self.state = self._action_state(self._active)
         self._start_ms = int(now_ms)
         self._start_encoders = (sample.enc_left, sample.enc_right)
         self._start_yaw_deg = sample.imu_yaw_deg
@@ -286,7 +313,7 @@ class PhysicalActionController:
         progress, left_delta, right_delta = self._progress(sample)
         remaining = max(0.0, self._active.target_ticks - progress)
         heading_error = self._heading_error(sample)
-        if self._active.name != "move_cell":
+        if self._active.name not in _STRAIGHT_ACTIONS:
             wheel_yaw_rate_dps = math.degrees(
                 self.profile.geometry.wheel_radius_m
                 * abs(
@@ -378,7 +405,7 @@ class PhysicalActionController:
     ) -> tuple[str, str] | None:
         assert self._active is not None
         if (
-            self._active.name == "move_cell"
+            self._active.name in _STRAIGHT_ACTIONS
             and sample.front_mm < self.config.danger_stop_mm
         ):
             return (
@@ -396,7 +423,7 @@ class PhysicalActionController:
                 "controller heartbeat expired",
             )
         if (
-            self._active.name == "move_cell"
+            self._active.name in _STRAIGHT_ACTIONS
             and abs(sample.accel_forward_mps2)
             >= self.config.collision_accel_mps2
             and sample.front_mm <= self.config.collision_distance_mm
@@ -419,7 +446,7 @@ class PhysicalActionController:
 
         progress, _left_delta, _right_delta = self._progress(sample)
         heading_progress = False
-        if self._active.name != "move_cell":
+        if self._active.name not in _STRAIGHT_ACTIONS:
             heading_error_abs = abs(self._heading_error(sample))
             heading_progress = (
                 heading_error_abs
@@ -452,7 +479,7 @@ class PhysicalActionController:
             external_mm,
         )
         if (
-            self._active.name == "move_cell"
+            self._active.name in _STRAIGHT_ACTIONS
             and self._start_front_mm
             < self.profile.tof.max_range_m * 1000.0 - 50.0
             and predicted_mm >= self.config.wheelspin_predicted_mm
@@ -483,14 +510,14 @@ class PhysicalActionController:
         ) <= self.config.settle_speed_rad_s
         angle_converged = self._angle_converged(heading_error)
         if (
-            self._active.name != "move_cell"
+            self._active.name not in _STRAIGHT_ACTIONS
             and low_speed
             and not angle_converged
         ):
             # Predictive braking may intentionally stop before or just after
             # the target. Once stationary, close the remaining IMU error with
             # another low-speed turn phase instead of accepting the coast.
-            self.state = _ACTION_STATES[self._active.name]
+            self.state = self._action_state(self._active)
             self._turn_target_crossed = False
             self._previous_heading_error_deg = heading_error
             self._settled_ticks = 0
@@ -567,7 +594,7 @@ class PhysicalActionController:
         assert self._active is not None
         speed_fraction = min(1.0, abs(self._active.speed))
         base = speed_fraction * self.profile.motor.max_velocity_rad_s
-        if self._active.name == "move_cell":
+        if self._active.name in _STRAIGHT_ACTIONS:
             slowdown_ratio = remaining / self.config.slowdown_ticks
             scale = max(
                 self.config.minimum_speed_scale,
@@ -681,6 +708,7 @@ class PhysicalActionController:
             "enc_left": sample.enc_left,
             "enc_right": sample.enc_right,
             "target_ticks": self._active.target_ticks,
+            **self._recovery_event_fields(self._active),
         }
         self.state = "IDLE"
         self._active = None
@@ -742,6 +770,11 @@ class PhysicalActionController:
             "duration_ms": max(0, int(now_ms) - self._start_ms),
             "enc_left": sample.enc_left if sample else None,
             "enc_right": sample.enc_right if sample else None,
+            **(
+                self._recovery_event_fields(active)
+                if active is not None
+                else {}
+            ),
         }
 
     def _progress(
@@ -750,7 +783,10 @@ class PhysicalActionController:
     ) -> tuple[float, int, int]:
         left_delta = sample.enc_left - self._start_encoders[0]
         right_delta = sample.enc_right - self._start_encoders[1]
-        if self._active is not None and self._active.name == "move_cell":
+        if (
+            self._active is not None
+            and self._active.name in _STRAIGHT_ACTIONS
+        ):
             progress = (left_delta + right_delta) / 2.0
         else:
             progress = (abs(left_delta) + abs(right_delta)) / 2.0
@@ -762,19 +798,33 @@ class PhysicalActionController:
     ) -> float:
         if self._active is None or not sample.imu_available:
             return 0.0
-        delta = {
-            "move_cell": 0.0,
-            "turn_left": -90.0,
-            "turn_right": 90.0,
-            "turn_back": 180.0,
-        }[self._active.name]
+        if self._active.name in _STRAIGHT_ACTIONS:
+            delta = 0.0
+        elif self._active.name == "align_heading":
+            magnitude = min(
+                15.0,
+                90.0
+                * self._active.target_ticks
+                / self.config.turn_90_ticks,
+            )
+            delta = (
+                -magnitude
+                if self._active.direction == "left"
+                else magnitude
+            )
+        else:
+            delta = {
+                "turn_left": -90.0,
+                "turn_right": 90.0,
+                "turn_back": 180.0,
+            }[self._active.name]
         target = (self._start_yaw_deg + delta) % 360.0
         return angle_delta_deg(target, sample.imu_yaw_deg)
 
     def _angle_converged(self, heading_error: float) -> bool:
         if self._active is None:
             return True
-        if self._active.name == "move_cell":
+        if self._active.name in _STRAIGHT_ACTIONS:
             return True
         return abs(heading_error) <= self.config.angle_tolerance_deg
 
@@ -786,7 +836,7 @@ class PhysicalActionController:
     ) -> bool:
         if self._active is None:
             return True
-        if self._active.name == "move_cell":
+        if self._active.name in _STRAIGHT_ACTIONS:
             return remaining <= self.config.position_tolerance_ticks
         return (
             progress
@@ -807,6 +857,64 @@ class PhysicalActionController:
             if name == "turn_back"
             else quarter_turn_ticks
         )
+
+    def _validate_recovery(self, request: ActionRequest) -> None:
+        if request.name not in _RECOVERY_ACTIONS:
+            if request.recovery:
+                raise ActionRejected(
+                    "recovery=true requires a bounded recovery action"
+                )
+            return
+        if not request.recovery:
+            raise ActionRejected(
+                "bounded recovery action requires recovery=true"
+            )
+        if request.name == "nudge_forward":
+            if request.target_ticks > self.config.cell_target_ticks // 4:
+                raise ActionRejected(
+                    "nudge_forward exceeds bounded quarter cell"
+                )
+            if request.speed > self.config.base_speed_limit * 0.5:
+                raise ActionRejected(
+                    "nudge_forward exceeds bounded half speed"
+                )
+            return
+        if request.direction not in {"left", "right"}:
+            raise ActionRejected(
+                "align_heading direction must be left or right"
+            )
+        if request.target_ticks > self.config.turn_90_ticks // 6:
+            raise ActionRejected(
+                "align_heading exceeds bounded 15 degrees"
+            )
+        if request.speed > self.config.turn_speed_limit * 0.5:
+            raise ActionRejected(
+                "align_heading exceeds bounded half speed"
+            )
+
+    @staticmethod
+    def _action_state(request: ActionRequest) -> str:
+        if request.name == "nudge_forward":
+            return "MOVING_CELL"
+        if request.name == "align_heading":
+            return (
+                "TURNING_LEFT"
+                if request.direction == "left"
+                else "TURNING_RIGHT"
+            )
+        return _ACTION_STATES[request.name]
+
+    @staticmethod
+    def _recovery_event_fields(
+        request: ActionRequest,
+    ) -> dict[str, Any]:
+        if not request.recovery:
+            return {}
+        return {
+            "recovery": True,
+            "direction": request.direction,
+            "parent_action_id": request.parent_action_id,
+        }
 
     def _telemetry(
         self,

@@ -628,3 +628,71 @@ def test_estop_is_immediate_latched_and_requires_explicit_clear():
         now_ms=16,
     )
     assert control.state == "MOVING_CELL"
+
+
+def test_physical_controller_recovery_actions_are_locally_bounded():
+    control = controller(
+        base_speed_limit=0.25,
+        turn_speed_limit=0.18,
+        cell_target_ticks=1350,
+        turn_90_ticks=720,
+    )
+    control.start(
+        ActionRequest(
+            "nudge-1",
+            "nudge_forward",
+            300,
+            0.10,
+            recovery=True,
+            parent_action_id="move-1",
+        ),
+        sample=sample(),
+        now_ms=0,
+    )
+    assert control.state == "MOVING_CELL"
+    control.reset()
+
+    control.start(
+        ActionRequest(
+            "align-1",
+            "align_heading",
+            60,
+            0.09,
+            recovery=True,
+            direction="left",
+            parent_action_id="move-1",
+        ),
+        sample=sample(),
+        now_ms=10,
+    )
+    assert control.state == "TURNING_LEFT"
+    control.reset()
+
+    with pytest.raises(ActionRejected, match="direction"):
+        control.start(
+            ActionRequest(
+                "align-bad",
+                "align_heading",
+                60,
+                0.09,
+                recovery=True,
+                direction="back",
+            ),
+            sample=sample(),
+            now_ms=20,
+        )
+    assert control.state == "IDLE"
+
+    with pytest.raises(ActionRejected, match="bounded"):
+        control.start(
+            ActionRequest(
+                "nudge-too-far",
+                "nudge_forward",
+                400,
+                0.10,
+                recovery=True,
+            ),
+            sample=sample(),
+            now_ms=30,
+        )
+    assert control.state == "IDLE"

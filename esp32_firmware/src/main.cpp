@@ -53,9 +53,15 @@ void handleMessage(const String &line) {
     command.name = String(doc["name"] | "");
     command.speed = doc["speed"] | 0.0f;
     command.target_ticks = doc["target_ticks"] | 0L;
+    command.recovery = doc["recovery"] | false;
+    command.direction = String(doc["direction"] | "");
+    command.parent_action_id = String(doc["parent_action_id"] | "");
 
     String error;
     bool ok = motionController.start(command, runtimeParams, millis(), error);
+    if (!ok) {
+      motors.stop();
+    }
     Protocol::sendAck(Serial, seq, ok, error);
     return;
   }
@@ -141,7 +147,7 @@ void loop() {
       if (result.success) {
         Protocol::sendDone(Serial, result, tofSensors.snapshot());
       } else {
-        Protocol::sendError(Serial, result.action_id, result.error_code, result.message, tofSensors.snapshot());
+        Protocol::sendMotionError(Serial, result, tofSensors.snapshot());
       }
     }
   }

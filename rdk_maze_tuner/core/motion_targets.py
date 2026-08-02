@@ -6,6 +6,7 @@ import math
 from dataclasses import dataclass
 
 from .maze_map import Direction, MazeMap, PlannedAction
+from .motion_evidence import RecoverySuggestion
 
 
 MAX_TARGET_TICKS = 2_147_483_647
@@ -124,6 +125,36 @@ class MotionTargetResolver:
             f"unsupported motion action: {action.name}"
         )
 
+    def resolve_recovery(
+        self,
+        recovery: RecoverySuggestion,
+        maze: MazeMap,
+    ) -> MotionTarget:
+        if recovery.kind == "nudge_forward":
+            return self._nudge_target(recovery, maze)
+        if recovery.kind == "align_heading":
+            return self._alignment_target(recovery)
+        raise MotionTargetError(
+            f"unsupported recovery action: {recovery.kind}"
+        )
+
+    @staticmethod
+    def recovery_speed(
+        target: MotionTarget,
+        *,
+        base_speed: float,
+        turn_speed: float,
+    ) -> float:
+        base = _positive_number(base_speed, "base_speed")
+        turn = _positive_number(turn_speed, "turn_speed")
+        if target.action_name == "nudge_forward":
+            return min(0.10, base * 0.5)
+        if target.action_name == "align_heading":
+            return min(0.09, turn * 0.5)
+        raise MotionTargetError(
+            f"unsupported recovery target: {target.action_name}"
+        )
+
     def _move_target(
         self,
         action: PlannedAction,
@@ -156,6 +187,75 @@ class MotionTargetResolver:
             ticks_per_mm=self.ticks_per_mm,
             target_ticks=ticks,
             source=source,
+        )
+
+    def _nudge_target(
+        self,
+        recovery: RecoverySuggestion,
+        maze: MazeMap,
+    ) -> MotionTarget:
+        direction = maze.heading
+        raw_cell_distance = (
+            maze.cell_height_mm
+            if direction in {Direction.NORTH, Direction.SOUTH}
+            else maze.cell_width_mm
+        )
+        cell_distance = _positive_number(
+            raw_cell_distance or self.fallback_cell_size_mm,
+            "cell_distance_mm",
+        )
+        remaining = _positive_number(
+            recovery.remaining_distance_mm,
+            "remaining_distance_mm",
+        )
+        caps = [remaining, cell_distance * 0.25]
+        if recovery.max_distance_mm is not None:
+            caps.append(
+                _positive_number(
+                    recovery.max_distance_mm,
+                    "max_distance_mm",
+                )
+            )
+        distance = min(caps)
+        return MotionTarget(
+            action_name="nudge_forward",
+            direction=direction.value,
+            distance_mm=distance,
+            ticks_per_mm=self.ticks_per_mm,
+            target_ticks=self._checked_ticks(
+                int(round(distance * self.ticks_per_mm))
+            ),
+            source="recovery.nudge_forward",
+        )
+
+    def _alignment_target(
+        self,
+        recovery: RecoverySuggestion,
+    ) -> MotionTarget:
+        delta = float(recovery.heading_delta_deg or 0.0)
+        if not math.isfinite(delta) or delta == 0:
+            raise MotionTargetError(
+                "heading_delta_deg must be finite and non-zero"
+            )
+        max_heading = min(
+            15.0,
+            _positive_number(
+                recovery.max_heading_deg or 15.0,
+                "max_heading_deg",
+            ),
+        )
+        angle = math.copysign(min(abs(delta), max_heading), delta)
+        ticks = self._checked_ticks(
+            max(1, int(round(self.turn_90_ticks * abs(angle) / 90.0)))
+        )
+        return MotionTarget(
+            action_name="align_heading",
+            direction="left" if angle < 0 else "right",
+            distance_mm=None,
+            ticks_per_mm=self.ticks_per_mm,
+            target_ticks=ticks,
+            source="recovery.align_heading",
+            target_angle_deg=angle,
         )
 
     def _checked_ticks(self, value: int) -> int:

@@ -2,7 +2,8 @@
 
 日期：2026-08-02
 
-状态：详细设计已确认，待用户审阅本文后进入实施计划
+状态：用户已确认；实施计划见
+`docs/superpowers/plans/2026-08-02-map-goal-navigation.md`
 
 适用范围：FastAPI Dashboard、TaskOrchestrator、共享迷宫核心、Webots 仿真适配器和真实小车适配器
 
